@@ -1,0 +1,85 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# config.yaml
+# ══════════════════════════════════════════════════════════════════════════════
+
+samplesheet: samplesheet.csv
+
+# output dir for all analysis:
+output_dir: "/mnt/data/pipelines/exome_pyclone/pipeline/results_test2"
+
+# ── Singularity images ────────────────────────────────────────────────────────
+# Offline HPC: run setup/offline_prefetch.sh on an internet machine first,
+# then replace the docker:// URIs with local .sif paths.
+singularity:
+  deepsomatic: "/mnt/data/pipelines/exome_pyclone/supporting_data/deepsomatic_1.10.0.sif"
+
+# ── Reference files ───────────────────────────────────────────────────────────
+# Point these to existing files. No download rules are included — prepare
+# references manually or via your site's data management system.
+# Works with any genome: replace paths accordingly.
+reference:
+  fasta:     /mnt/data/pipelines/exome_pyclone/supporting_data/hg38.fa          # bwa-mem2 indexed, samtools faidx'd
+  dbsnp:     /mnt/data/pipelines/exome_pyclone/supporting_data/Homo_sapiens_assembly38.dbsnp138.vcf.gz       # bgzipped + tabix indexed
+  intervals: /mnt/data/pipelines/exome_pyclone/supporting_data/union_all_exomes.bed  # exome capture BED
+  bwa_ref:   /mnt/data/pipelines/exome_pyclone/supporting_data/hg38.fa # name of the bwa-mem2 index (in the same dir: hg38.fa.fai,hg38.fa.amb,hg38.fa.pac)
+# ── Clustering tool ───────────────────────────────────────────────────────────
+# "phylogic"  — PhylogicNDT (DREAM 2024 benchmark; Broad Institute)
+#               Garofalo et al., Nat Cancer 4:731 (2023)
+#               Boutros et al., Nat Biotechnol 43:581 (2025)
+# "pyclone6"  — PyClone6 (Tanner et al. 2021 WES benchmark)
+#               Gillis & Roth, BMC Bioinformatics 21:571 (2020)
+# "viber"     - https://github.com/caravagnalab/VIBER/tree/master
+#               https://caravagnalab.github.io/VIBER/authors.html#citation
+clustering_tool: phylogic
+
+
+# kraken2 for contamination detection
+kraken2:
+  kraken2_active: False   #
+  kraken2_database: "/mnt/data/pipelines/bclconvert_pipeline/supporting_data/databases/kraken2/kraken_db_plus"
+
+# ── Trimming (fastp) ──────────────────────────────────────────────────────────
+trim:
+  min_length: 36
+  quality:    20
+
+# ── Somatic filtering (post-DeepSomatic) ─────────────────────────────────────
+somatic:
+  min_vaf:   0.02
+  min_depth: 5 # per-clone depth is set to min 25 in each build_***input.R script anyway
+  filter: True
+
+
+# ── DeepSomatic ───────────────────────────────────────────────────────────────
+# model_type: WES | WGS | FFPE_WES | FFPE_WGS | PACBIO | ONT
+deepsomatic:
+  use_bed: False # if yes, use the bed from the references part also here. if not its more wide and will find more variants
+  model_type: WES
+  extra_args: ""
+
+# ── FACETS ────────────────────────────────────────────────────────────────────
+facets:
+  cval:             150   # CBS segmentation sensitivity; lower = more segments
+  min_nhet:          25   # min heterozygous SNPs per segment
+  ndepth:            35   # min depth for SNP inclusion
+  snp_nbhd:         250   # SNP neighbourhood smoothing window (bp)
+  genome:          hg38
+  min_depth_normal:  25   # snp-pileup min depth in normal
+  min_base_quality:  25
+  min_map_quality:   15
+
+# ── CNAqc ─────────────────────────────────────────────────────────────────────
+cnaqc:
+  purity_tolerance: 0.05  # lambda score epsilon for PASS/FAIL
+
+# ── PhylogicNDT ───────────────────────────────────────────────────────────────
+phylogic:
+  phylogicndt_dir: /mnt/data/pipelines/exome_pyclone/pipeline/phylogic_ndt/PhylogicNDT-master   # set after running setup/install_phylogic.sh
+  n_iter: 1000
+
+# ── PyClone6 (used when clustering_tool: pyclone6) ────────────────────────────
+pyclone6:
+  n_clusters:  10
+  n_restarts:  10
+  num_iters:   10000
+  density:     beta-binomial   # recommended for WES; use binomial only at >200x

@@ -1,0 +1,8 @@
+name: exome_qc
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - fastqc=0.12.1
+  - fastp=0.23.4
+  - mosdepth=0.3.8
+  - multiqc=1.21
+  - python>=3.10

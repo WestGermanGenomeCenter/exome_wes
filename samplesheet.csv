@@ -1,0 +1,7 @@
+sample,type,r1,r2,library
+sg061,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189926_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189926_2.fastq.gz
+sg061,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189924_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189924_2.fastq.gz
+sg070,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189928_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189928_2.fastq.gz
+sg070,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189922_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189922_2.fastq.gz
+st015,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189785_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189785_2.fastq.gz
+st015,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189783_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189783_2.fastq.gz

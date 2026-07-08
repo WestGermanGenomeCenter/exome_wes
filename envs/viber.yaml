@@ -1,0 +1,13 @@
+name: viber
+
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  - r-base=4.4
+  - r-viber=1.0.0
+  - r-data.table
+  - r-optparse
+  - r-ggplot2
+  - bioconductor-variantannotation

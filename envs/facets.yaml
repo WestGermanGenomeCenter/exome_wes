@@ -1,0 +1,7 @@
+name: exome_facets
+channels: [bioconda, conda-forge, r, nodefaults]
+dependencies:
+  - r-base=4.3
+  - r-facets
+  - r-data.table
+  - snp-pileup

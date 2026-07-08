@@ -1,0 +1,20 @@
+name: exome_cnaqc
+channels: [bioconda, conda-forge, nodefaults]
+# CNAqc is GitHub-only; installed via pip git+ after conda resolves dependencies.
+# For offline HPC: conda-pack this env after creation (see setup/offline_prefetch.sh).
+dependencies:
+#  - r-base=4.3
+  - r-devtools
+  - r-ggplot2
+  - r-dplyr
+  - r-data.table
+  - r-patchwork
+  - r-ggrepel
+  - r-cnaqc
+  - bioconductor-variantannotation
+  - bioconductor-genomicranges
+  - bcftools=1.21
+  - htslib=1.21
+  # - pip
+  # - pip:
+  #   - git+https://github.com/caravagnalab/CNAqc.git

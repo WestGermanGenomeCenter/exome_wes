@@ -1,0 +1,6 @@
+name: exome_gatk
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - gatk4=4.5.0.0
+  - samtools=1.21
+  - python>=3.10

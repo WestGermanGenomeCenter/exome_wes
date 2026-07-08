@@ -1,0 +1,12 @@
+name: exome_pyclone6
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - pyclone-vi=0.2.0
+  - python>=3.10
+  - pandas
+  - bcftools=1.21
+  - r-base=4.3
+  - r-ggplot2
+  - r-data.table
+  - r-scales
+  - r-viridislite

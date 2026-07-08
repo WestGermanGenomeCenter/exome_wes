@@ -1,0 +1,5 @@
+name: exome_bcftools
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - bcftools=1.21
+  - htslib=1.21
