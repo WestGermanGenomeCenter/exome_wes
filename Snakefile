@@ -106,12 +106,11 @@ def cluster_outputs(sample):
                 f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf"]
     if CLUSTERING_TOOL == "viber":
         return [f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv"]
+    if CLUSTERING_TOOL == "orchard":
+        return [f"{OUTDIR}/{sample}/orchard/{sample}_tree.pdf"]
     return [f"{OUTDIR}/{sample}/phylogic/{sample}.cluster_ccfs.txt",
             f"{OUTDIR}/{sample}/phylogic/{sample}.phylogic_report.html"]
-#         html  = "{outdir}/{sample}/phylogic/{sample}.phylogic_report.html",
-#         posteriors = "{outdir}/{sample}/phylogic/{sample}.cluster_ccfs.txt",
 
-#         clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Target rule
@@ -751,7 +750,78 @@ rule pyclone6:
         """
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Orchard — orthogonal tumor phylogeny via stochastic combinatorial search.
+# Requires PyClone6 cluster assignments as input (pyclone6 must run first).
+# Uses identical .ssm/.params.json format as Pairtree.
+# Visualisation reuses Pairtree's plottree (both repos must be cloned).
+# Active when clustering_tool: orchard in config.yaml.
+# ══════════════════════════════════════════════════════════════════════════════
 
+rule orchard_prep:
+    # Builds .ssm (read counts + CN-corrected var_read_prob) and
+    # .params.json (PyClone6 cluster assignments) for Orchard input.
+    input:
+        vcf     = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz" if config["somatic"]["filter"] else "{outdir}/{sample}/deepsomatic/{sample}_somatic_raw.vcf.gz",
+        seg     = "{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",
+        pyclone = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
+    output:
+        ssm    = "{outdir}/{sample}/orchard/{sample}.ssm",
+        params = "{outdir}/{sample}/orchard/{sample}.params.json",
+    resources:
+        threads  = lambda wildcards, attempt: 1,
+        mem_gb   = lambda wildcards, attempt: 8 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1,
+    message: "Orchard input prep: {wildcards.sample}"
+    log: "{outdir}/logs/{sample}/orchard_prep.log"
+    conda: "envs/cnaqc.yaml"
+    shell:
+        """
+        Rscript --vanilla scripts/build_orchard_input.R \
+            {input.vcf} {input.seg} {input.pyclone} \
+            {output.ssm} {output.params} {wildcards.sample} \
+            > {log} 2>&1
+        """
+
+rule orchard_run:
+    # Orchard stochastic combinatorial search → ranked clone trees (.npz).
+    # plottree (from Pairtree) produces the interactive HTML report.
+    # Key params: -k beam width, -f branching factor, -n parallel instances.
+    # For WES with few clusters (typically <15): default k=10, f=100 is fine.
+    input:
+        ssm    = "{outdir}/{sample}/orchard/{sample}.ssm",
+        params = "{outdir}/{sample}/orchard/{sample}.params.json",
+    output:
+        npz  = "{outdir}/{sample}/orchard/{sample}.orchard.npz",
+        plot   = "{outdir}/{sample}/orchard/{sample}_tree.pdf", # Changed to PDF    
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 4,
+        mem_gb   = lambda wildcards, attempt: 16 + attempt * 8,
+        time_hrs = lambda wildcards, attempt: attempt * 2,
+    message: "Orchard tree inference: {wildcards.sample}"
+    log: "{outdir}/logs/{sample}/orchard_run.log"
+    conda: "envs/orchard.yaml"
+    params:
+        orchard      = config["orchard"]["orchard_dir"] + "/bin/orchard",
+        plottree     = config["orchard"]["pairtree_dir"] + "/bin/plottree",
+        beam_width   = config.get("orchard", {}).get("beam_width",   10),
+        branching    = config.get("orchard", {}).get("branching",   100),
+        n_parallel   = config.get("orchard", {}).get("n_parallel",    4),
+        outdir       = "{outdir}/{sample}/orchard",
+    shell:
+        """
+        python3 {params.orchard} \
+            {input.ssm} \
+            {input.params} \
+            {output.npz} \
+            -k {params.beam_width} \
+            -f {params.branching} \
+            -n {params.n_parallel} \
+            > {log} 2>&1
+
+
+        python3 scripts/plot_orchard_tree.py {output.npz} {output.plot} >> {log} 2>&1
+        """
 
         
 # ══════════════════════════════════════════════════════════════════════════════

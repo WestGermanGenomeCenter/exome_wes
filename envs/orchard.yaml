@@ -1,0 +1,30 @@
+name: orchard
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - scipy=1.10.1
+  - numba
+  - colorlover
+  - plotly=4.14.3
+  - icu=58
+  - r-base=4.2
+  - r-ape
+  - r-reticulate
+  - r-jsonlite
+  - biopython 
+  - pip
+  - pip:
+    - future
+    - numpy
+    - pandas
+    - scikit-learn
+    - scipy==1.10.1
+    - tqdm
+    - omicsdata==1.3
+    - matplotlib
+    - pyvis
+    - seaborn

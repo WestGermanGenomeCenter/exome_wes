@@ -139,7 +139,13 @@ Runs the Dirichlet process clustering. Each cluster in the output represents a s
 **`phylogic_build_tree`**
 Given the cluster CCF posteriors, BuildTree infers the most probable phylogenetic relationships between clusters. The output HTML report contains an interactive visualisation of the clone tree.
 
-**Biological interpretation:** In paediatric sarcomas, PhylogicNDT can reveal whether the primary tumour and metastasis share a common ancestor clone, and whether any subclones at diagnosis later dominated at relapse — informative for understanding treatment selection pressure.
+**Biological interpretation:** In cancers, PhylogicNDT can reveal whether the primary tumour and metastasis share a common ancestor clone, and whether any subclones at diagnosis later dominated at relapse — informative for understanding treatment selection pressure.
+
+# PhylogicNDT edits
+Phylogic is part of this repo - that is on purpose. Its old, non-maintained python2 version needed to be edited.
+The edits were only made in data/Sample.py and only are about input file format / data reading. no part of the data analysis / algirithm was touched. These edits were done with the help of LLMs, tested and verified working by one human.
+the also included .zip files includes the complete, original use base.
+
 
 ---
 

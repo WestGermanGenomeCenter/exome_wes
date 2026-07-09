@@ -30,7 +30,9 @@ reference:
 #               Gillis & Roth, BMC Bioinformatics 21:571 (2020)
 # "viber"     - https://github.com/caravagnalab/VIBER/tree/master
 #               https://caravagnalab.github.io/VIBER/authors.html#citation
-clustering_tool: phylogic
+# "orchard"   - https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1012653
+#               https://github.com/morrislab/orchard
+clustering_tool: orchard
 
 
 # kraken2 for contamination detection
@@ -83,3 +85,10 @@ pyclone6:
   n_restarts:  10
   num_iters:   10000
   density:     beta-binomial   # recommended for WES; use binomial only at >200x
+
+orchard:
+  orchard_dir:  /mnt/data/pipelines/exome_pyclone/pipeline/orchard_install/orchard     # git clone of morrislab/orchard
+  pairtree_dir: /mnt/data/pipelines/exome_pyclone/pipeline/orchard_install/pairtree    # git clone of morrislab/pairtree (for plottree only)
+  beam_width:   10
+  branching:    100
+  n_parallel:   4
