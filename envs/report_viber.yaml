@@ -1,0 +1,7 @@
+name: plot_viber
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - scipy
+  - matplotlib 
+  - numpy 
+  - pandas

@@ -105,7 +105,8 @@ def cluster_outputs(sample):
         return [f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
                 f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf"]
     if CLUSTERING_TOOL == "viber":
-        return [f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv"]
+        return [f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv",
+                f"{OUTDIR}/{sample}/viber/viber_report.pdf"]
     if CLUSTERING_TOOL == "orchard":
         return [f"{OUTDIR}/{sample}/orchard/{sample}_tree.pdf"]
     return [f"{OUTDIR}/{sample}/phylogic/{sample}.cluster_ccfs.txt",
@@ -122,9 +123,7 @@ rule all:
         f"{OUTDIR}/multiqc/multiqc_report.html",
         # Somatic calls
         expand("{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz", sample=SAMPLES,outdir=OUTDIR),
-        #expand("{outdir}/{sample}/deepsomatic/{sample}_somatic_qc.txt",      sample=SAMPLES,outdir=OUTDIR), testing with the raw deepsomatic output now
-        # making the filtering now optional
-        # Copy number + validation
+        expand("{outdir}/{sample}/deepsomatic/{sample}_report.pdf", sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",         sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/facets/{sample}_facets_qc.txt",            sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",              sample=SAMPLES,outdir=OUTDIR),
@@ -423,6 +422,25 @@ rule somatic_qc:
         """
         bash scripts/somatic_qc.sh {input.vcf} {output.qc} {output.stats} \
             {wildcards.sample} > {log} 2>&1
+        """
+
+
+
+rule deepsomatic_qc:
+     input:
+        vcf = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz" if config["somatic"]["filter"] else "{outdir}/{sample}/deepsomatic/{sample}_somatic_raw.vcf.gz",
+    output:
+        qc    = "{outdir}/{sample}/deepsomatic/{sample}_report.pdf",
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 2,
+        mem_gb   = lambda wildcards, attempt: 4 + attempt,
+        time_hrs = lambda wildcards, attempt: attempt * 1,
+    message: "Deepsomatic report: {wildcards.sample}"
+    log: "{outdir}/logs/{sample}/deepsomatic_report.log"
+    conda: "envs/plot_deepsomatic.yaml"
+    shell:
+        """
+        python3 scripts/deepsomatic_report.py --input {input.vcf} --output {output.qc} > {log} 2>&1
         """
 
 
@@ -866,7 +884,8 @@ rule viber:
     input:
         tsv = "{outdir}/{sample}/viber/{sample}_viber_input.tsv"
     output:
-        clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv"
+        clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv",
+        rds ="{outdir}/{sample}/viber/{sample}_viber_fit.rds"
     resources:
         threads = lambda wildcards, attempt: attempt * 2,
         mem_gb = lambda wildcards, attempt: 18 + attempt * 4,
@@ -889,9 +908,56 @@ rule viber:
         """
 
 
+# now plot this all
 
+rule extract_viber:
+    input:
+        tsv = "{outdir}/{sample}/viber/{sample}_viber_input.tsv",
+        rds ="{outdir}/{sample}/viber/{sample}_viber_fit.rds",
+        clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv"
+    output:
+        posterios = "{outdir}/{sample}/viber/posterior.tsv"
+    resources:
+        threads = lambda wildcards, attempt: attempt * 2,
+        mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "extracting VIBER clustering rds: {wildcards.sample}"
+    log:
+        "{outdir}/logs/{sample}/viber_extract.log"
+    conda:
+        "envs/viber.yaml"
+    params:
+        dir = "{outdir}/{sample}/viber/"
+    shell:
+        """
+        Rscript  --vanilla scripts/extract_viber.R --rds {input.rds} --outdir {params.dir} --input {input.tsv}  > {log} 2>&1
+        """
 
-
+rule report_viber:
+    input:
+        tsv = "{outdir}/{sample}/viber/{sample}_viber_input.tsv",
+        rds ="{outdir}/{sample}/viber/{sample}_viber_fit.rds",
+        clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv"
+    output:
+        viber_pdf = "{outdir}/{sample}/viber/viber_report.pdf"
+    resources:
+        threads = lambda wildcards, attempt: attempt * 2,
+        mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "extracting VIBER clustering rds: {wildcards.sample}"
+    log:
+        "{outdir}/logs/{sample}/viber_extract.log"
+    conda:
+        "envs/report_viber.yaml"
+    params:
+        dir = "{outdir}/{sample}/viber/"
+        sample_name = "{sample}"
+    shell:
+        """
+        python scripts/viber_report.py --dir {params.dir} --sample {params.sample_name} --output {output.viber_pdf} > {log} 2>&1
+        """
 
 
 # ══════════════════════════════════════════════════════════════════════════════

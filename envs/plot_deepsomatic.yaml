@@ -1,0 +1,7 @@
+name: plot_deepsomatic
+channels: [bioconda, conda-forge, nodefaults]
+dependencies:
+  - cyvcf2 
+  - matplotlib 
+  - numpy 
+  - pandas
