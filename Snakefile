@@ -103,6 +103,7 @@ def cluster_outputs(sample):
     """Return final output paths for the active clustering tool."""
     if CLUSTERING_TOOL == "pyclone6":
         return [f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
+                f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_report.pdf",
                 f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf"]
     if CLUSTERING_TOOL == "viber":
         return [f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv",
@@ -427,7 +428,7 @@ rule somatic_qc:
 
 
 rule deepsomatic_qc:
-     input:
+    input:
         vcf = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz" if config["somatic"]["filter"] else "{outdir}/{sample}/deepsomatic/{sample}_somatic_raw.vcf.gz",
     output:
         qc    = "{outdir}/{sample}/deepsomatic/{sample}_report.pdf",
@@ -440,7 +441,7 @@ rule deepsomatic_qc:
     conda: "envs/plot_deepsomatic.yaml"
     shell:
         """
-        python3 scripts/deepsomatic_report.py --input {input.vcf} --output {output.qc} > {log} 2>&1
+        python3 scripts/deepsomatic_report.py {input.vcf} --output {output.qc} > {log} 2>&1
         """
 
 
@@ -725,6 +726,7 @@ rule pyclone6:
     output:
         results = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
         plot    = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf",
+
     resources:
         threads  = lambda wildcards, attempt: attempt * 4,
         mem_gb   = lambda wildcards, attempt: 16 + (attempt * 8),
@@ -739,6 +741,7 @@ rule pyclone6:
         density    = config.get("pyclone6", {}).get("density", "beta-binomial"),
         outdir     = "{outdir}/{sample}/pyclone6.hdf5",
         results_tmp = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results_tmp.tsv",
+        hdf5_copy = "{outdir}/{sample}/pyclone6_{sample}.hdf5",
     shell:
         """
         pyclone-vi fit \
@@ -750,6 +753,7 @@ rule pyclone6:
             --density {params.density} \
             > {log} 2>&1
 
+        cp {params.outdir} {params.hdf5_copy} > {log} 2>&1
         pyclone-vi write-results-file \
             -i {params.outdir} \
             -o {params.results_tmp} \
@@ -767,6 +771,34 @@ rule pyclone6:
             >> {log} 2>&1
         """
 
+
+rule pyclone_plot:
+    input:
+        tsv = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_input.tsv",
+        results = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
+
+    output:
+        report  = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_report.pdf",
+
+    conda: "envs/report_viber.yaml"
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 1,
+        mem_gb   = lambda wildcards, attempt: 1 + (attempt * 7),
+        time_hrs = lambda wildcards, attempt: attempt * 4,
+    message: "Plotting the pyclone6 results for sample {wildcards.sample}"
+    params:
+        outdir     = "{outdir}/{sample}/pyclone6.hdf5",
+        results_tmp = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results_tmp.tsv",
+        hdf5_copy = "{outdir}/{sample}/pyclone6_{sample}.hdf5",
+    log: "{outdir}/logs/{sample}/pyclone6_report.log"
+    shell:
+        """
+        python scripts/pyclone_report.py --input {input.tsv} --results {input.results} --sample {wildcards.sample} --output {output.report} >> {log} 2>&1
+        
+        """
+
+# split this rule maybe - all after write-results-file into one reports rule with this one here aswell:
+    #  python ../../../scripts/pyclone_report.py --input sg070_pyclone6_input.tsv --results sg070_pyclone6_results.tsv --sample sg070 --output test_report_pyclone.pdf
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Orchard — orthogonal tumor phylogeny via stochastic combinatorial search.
@@ -952,7 +984,7 @@ rule report_viber:
     conda:
         "envs/report_viber.yaml"
     params:
-        dir = "{outdir}/{sample}/viber/"
+        dir = "{outdir}/{sample}/viber/",
         sample_name = "{sample}"
     shell:
         """

@@ -19,11 +19,16 @@ Usage:
         --elbo       elbo.tsv       \
         [--sample sg070]
 
-Expected TSV columns (written by extract_viber_rds.R):
-    mutations.tsv   : mutation_id  mutation_index  cluster  successes  trials
-    parameters.tsv  : cluster  pi  theta
-    posterior.tsv   : C1 C2 ... CK  mutation_index
-    elbo.tsv        : iteration  ELBO
+Expected files (written by extract_viber_rds.R + run_viber.R):
+    mutations.tsv          : mutation_index  cluster  successes  trials  vaf
+    parameters.tsv         : cluster  pi  theta
+    posterior.tsv          : C1 C2 ... CK  mutation_index
+    elbo.tsv               : iteration  ELBO
+    <sample>_viber_input.tsv : mutation_id  successes  trials   (for genomic coords)
+
+mutation_id is no longer in mutations.tsv. The script joins mutations.tsv with
+<sample>_viber_input.tsv by row position (they share the same mutation order).
+Genomic plots are skipped if the input TSV is not provided or not found.
 
 Conda deps:
     conda install -c conda-forge matplotlib numpy pandas scipy
@@ -122,7 +127,8 @@ def _safe_read(path, label):
         return None
 
 
-def load_data(mutations_path, parameters_path, posterior_path, elbo_path):
+def load_data(mutations_path, parameters_path, posterior_path, elbo_path,
+              input_path=None):
     mut  = _safe_read(mutations_path,  "mutations.tsv")
     par  = _safe_read(parameters_path, "parameters.tsv")
     post = _safe_read(posterior_path,  "posterior.tsv")
@@ -132,7 +138,9 @@ def load_data(mutations_path, parameters_path, posterior_path, elbo_path):
         sys.exit("ERROR: mutations.tsv and parameters.tsv are required.")
 
     # ── validate / clean mutations ─────────────────────────────────────────
-    for col in ("mutation_id", "cluster", "successes", "trials"):
+    # New format: mutation_index  cluster  successes  trials  vaf
+    # (mutation_id is gone — it lives in *_viber_input.tsv)
+    for col in ("cluster", "successes", "trials"):
         if col not in mut.columns:
             sys.exit(f"ERROR: mutations.tsv missing column: {col}")
 
@@ -144,15 +152,43 @@ def load_data(mutations_path, parameters_path, posterior_path, elbo_path):
         print(f"  [WARN] Dropping {bad.sum()} rows with invalid counts", file=sys.stderr)
         mut = mut[~bad].copy()
 
-    mut["vaf"] = mut["successes"] / mut["trials"]
-
-    parts = mut["mutation_id"].str.split(":", expand=True)
-    mut["chrom"] = parts[0] if parts.shape[1] > 0 else pd.NA
-    mut["pos"]   = pd.to_numeric(parts[1], errors="coerce") if parts.shape[1] > 1 else np.nan
+    # use pre-computed vaf if present, otherwise compute it
+    if "vaf" in mut.columns:
+        mut["vaf"] = pd.to_numeric(mut["vaf"], errors="coerce")
+    else:
+        mut["vaf"] = mut["successes"] / mut["trials"]
 
     if "mutation_index" not in mut.columns:
         mut["mutation_index"] = range(1, len(mut) + 1)
     mut["mutation_index"] = pd.to_numeric(mut["mutation_index"], errors="coerce")
+
+    # ── attach mutation_id from *_viber_input.tsv (joined by row position) ─
+    mut["mutation_id"] = pd.NA
+    mut["chrom"]       = pd.NA
+    mut["pos"]         = np.nan
+
+    if input_path is not None:
+        inp = _safe_read(input_path, "viber_input.tsv")
+        if inp is not None and "mutation_id" in inp.columns:
+            if len(inp) != len(mut):
+                print(
+                    f"  [WARN] viber_input.tsv has {len(inp)} rows but mutations.tsv "
+                    f"has {len(mut)} — skipping mutation_id join",
+                    file=sys.stderr,
+                )
+            else:
+                mut = mut.reset_index(drop=True)
+                mut["mutation_id"] = inp["mutation_id"].values
+                parts = mut["mutation_id"].str.split(":", expand=True)
+                mut["chrom"] = parts[0] if parts.shape[1] > 0 else pd.NA
+                mut["pos"]   = (pd.to_numeric(parts[1], errors="coerce")
+                                if parts.shape[1] > 1 else np.nan)
+        else:
+            print("  [WARN] viber_input.tsv missing or has no mutation_id column",
+                  file=sys.stderr)
+    else:
+        print("  [INFO] --input not supplied; genomic plots will be skipped",
+              file=sys.stderr)
 
     # ── validate parameters ────────────────────────────────────────────────
     for col in ("cluster", "pi", "theta"):
@@ -569,6 +605,10 @@ def page_ccf_architecture(pdf, mut, par, sample_id, pal):
 
 
 def page_chromosome_distribution(pdf, mut, par, sample_id, pal):
+    if mut["chrom"].isna().all():
+        print("  [INFO] No genomic coordinates — skipping chromosome distribution page",
+              file=sys.stderr)
+        return
     order       = _cluster_order(par)
     present     = [c for c in CHR_ORDER if c in mut["chrom"].dropna().values]
     other       = sorted(set(mut["chrom"].dropna().unique()) - set(CHR_ORDER))
@@ -757,6 +797,10 @@ def page_elbo_detail(pdf, elbo, sample_id):
 
 
 def page_genome_landscape(pdf, mut, par, sample_id, pal):
+    if mut["chrom"].isna().all() or mut["pos"].isna().all():
+        print("  [INFO] No genomic coordinates — skipping genome landscape page",
+              file=sys.stderr)
+        return
     order   = _cluster_order(par)
     par_idx = par.set_index("cluster")
     present = [c for c in CHR_ORDER if c in mut["chrom"].dropna().values]
@@ -820,11 +864,15 @@ def main():
     )
     parser.add_argument("--dir", "-d", default=None,
                         help="Directory with mutations.tsv / parameters.tsv / "
-                             "posterior.tsv / elbo.tsv")
+                             "posterior.tsv / elbo.tsv  (and optionally "
+                             "*_viber_input.tsv for genomic coordinates)")
     parser.add_argument("--mutations",  default=None, help="mutations.tsv path")
     parser.add_argument("--parameters", default=None, help="parameters.tsv path")
     parser.add_argument("--posterior",  default=None, help="posterior.tsv path")
     parser.add_argument("--elbo",       default=None, help="elbo.tsv path")
+    parser.add_argument("--input",      default=None,
+                        help="<sample>_viber_input.tsv path (provides mutation_id "
+                             "for genomic coordinate plots)")
     parser.add_argument("--sample", "-s", default="sample",
                         help="Sample ID for plot titles")
     parser.add_argument("--output", "-o", default=None,
@@ -841,6 +889,17 @@ def main():
     posterior_p  = _res(args.posterior,  args.dir, "posterior.tsv")
     elbo_p       = _res(args.elbo,       args.dir, "elbo.tsv")
 
+    # --input: explicit path wins; otherwise auto-detect *_viber_input.tsv in --dir
+    input_p = args.input
+    if input_p is None and args.dir is not None:
+        candidates = sorted(Path(args.dir).glob("*_viber_input.tsv"))
+        if candidates:
+            input_p = str(candidates[0])
+            print(f"[viber_report] Auto-detected input TSV: {input_p}")
+        else:
+            print("[viber_report] No *_viber_input.tsv found in --dir; "
+                  "genomic plots will be skipped")
+
     if not mutations_p or not parameters_p:
         parser.error("Provide --dir  OR both --mutations and --parameters.")
 
@@ -849,11 +908,15 @@ def main():
                 else Path(f"{sample_id}_viber_report.pdf")
 
     print(f"[viber_report] Sample: {sample_id}")
-    mut, par, post, elbo = load_data(mutations_p, parameters_p, posterior_p, elbo_p)
+    mut, par, post, elbo = load_data(
+        mutations_p, parameters_p, posterior_p, elbo_p, input_p
+    )
     print(f"[viber_report] {len(mut):,} mutations, "
           f"{par['cluster'].nunique()} clusters: {sorted(par['cluster'].tolist())}")
+    has_coords = not mut["chrom"].isna().all()
     print(f"[viber_report] posterior={'yes' if post is not None else 'missing'}, "
-          f"elbo={'yes' if elbo is not None else 'missing'}")
+          f"elbo={'yes' if elbo is not None else 'missing'}, "
+          f"genomic_coords={'yes' if has_coords else 'no'}")
 
     pal = _palette(par["cluster"].tolist())
 
@@ -878,11 +941,11 @@ def main():
         page_posterior_confidence(pdf, mut, par, post, sample_id, pal)  # p4
         page_posterior_heatmap(pdf, mut, par, post, sample_id, pal)     # p5
         page_ccf_architecture(pdf, mut, par, sample_id, pal)            # p6
-        page_chromosome_distribution(pdf, mut, par, sample_id, pal)     # p7
+        page_chromosome_distribution(pdf, mut, par, sample_id, pal)     # p7  (skipped if no coords)
         page_vaf_depth_scatter(pdf, mut, par, sample_id, pal)           # p8
         page_within_cluster_fit(pdf, mut, par, sample_id, pal)          # p9
         page_elbo_detail(pdf, elbo, sample_id)                          # p10
-        page_genome_landscape(pdf, mut, par, sample_id, pal)            # p11
+        page_genome_landscape(pdf, mut, par, sample_id, pal)            # p11 (skipped if no coords)
 
     print(f"[viber_report] Done — {out_pdf}")
 
