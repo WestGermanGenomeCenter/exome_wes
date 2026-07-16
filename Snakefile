@@ -858,6 +858,7 @@ rule orchard_run:
         branching    = config.get("orchard", {}).get("branching",   100),
         n_parallel   = config.get("orchard", {}).get("n_parallel",    4),
         outdir       = "{outdir}/{sample}/orchard",
+        pdf          = "{outdir}/{sample}/orchard/{sample}_report.pdf"
     shell:
         """
         python3 {params.orchard} \
@@ -871,7 +872,11 @@ rule orchard_run:
 
 
         python3 scripts/plot_orchard_tree.py {output.npz} {output.plot} >> {log} 2>&1
+
+        python scripts/orchard_report.py --npz {output.npz} --params {input.params} --ssm {input.ssm} --sample {wildcards.sample} -o {params.pdf} >> {log} 2>&1
         """
+# add python ../../../scripts/orchard_report.py --npz st015.orchard.npz --params st015.params.json --ssm st015.ssm --sample st015 -o test_orchard_report.pdf
+
 
         
 # ══════════════════════════════════════════════════════════════════════════════
