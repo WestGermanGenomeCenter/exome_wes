@@ -1,0 +1,11 @@
+sample,type,r1,r2
+breast_carcinoma_WGS_2019_sample1,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890824.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890824.sra_2.fastq.gz
+breast_carcinoma_WGS_2019_sample2,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890825.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890825.sra_2.fastq.gz
+breast_carcinoma_WGS_2019_sample1,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890826.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890826.sra_2.fastq.gz
+breast_carcinoma_WGS_2019_sample2,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890827.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR7890827.sra_2.fastq.gz
+synovial_sarcoma_WXS_2025_sample1,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189928_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189928_2.fastq.gz
+synovial_sarcoma_WXS_2025_sample1,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189922_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR36189922_2.fastq.gz
+lung_cancer_WGS_2025_sample1,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955955.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955955.sra_2.fastq.gz
+lung_cancer_WGS_2025_sample1,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955956.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955956.sra_2.fastq.gz
+lung_cancer_WGS_2025_sample2,tumor,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955957.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955957.sra_2.fastq.gz
+lung_cancer_WGS_2025_sample2,normal,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955958.sra_1.fastq.gz,/mnt/data/pipelines/exome_pyclone/input_data/SRR8955958.sra_2.fastq.gz

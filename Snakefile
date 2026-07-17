@@ -127,6 +127,7 @@ rule all:
         expand("{outdir}/{sample}/deepsomatic/{sample}_report.pdf", sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",         sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/facets/{sample}_facets_qc.txt",            sample=SAMPLES,outdir=OUTDIR),
+        expand("{outdir}/{sample}/muttime/{sample}_mutations.tsv",            sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",              sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/kraken/{sample}_report", sample=SAMPLES, outdir=OUTDIR)
             if config.get("kraken2", {}).get("kraken2_active", False) else [],
@@ -546,8 +547,31 @@ rule cnaqc:
         """
 
 
+# add muttime.py python muttime3.py --vcf ../synovial_sarcoma_WXS_2025_sample1/deepsomatic/synovial_sarcoma_WXS_2025_sample1_somatic_pass.vcf.gz --seg ../synovial_sarcoma_WXS_2025_sample1/facets/synovial_sarcoma_WXS_2025_sample1_cnv_segments.tsv --purity ../synovial_sarcoma_WXS_2025_sample1/phylogic/synovial_sarcoma_WXS_2025_sample1_purity.txt --prefix test1_synovial2
 
 
+rule muttime:
+    input:
+        vcf = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz" if config["somatic"]["filter"] else "{outdir}/{sample}/deepsomatic/{sample}_somatic_raw.vcf.gz",
+        seg = "{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",
+        rds = "{outdir}/{sample}/facets/{sample}_facets.rds",
+        purity = "{outdir}/{sample}/phylogic/{sample}_purity.txt",
+    output:
+        mutations = "{outdir}/{sample}/muttime/{sample}_mutations.tsv",
+        report   = "{outdir}/{sample}/muttime/{sample}_timing_report.pdf",
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 2,
+        mem_gb   = lambda wildcards, attempt: 12 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1,
+    message: "muttime script: {wildcards.sample}"
+    log: "{outdir}/logs/{sample}/muttime.log"
+    conda: "envs/plot_deepsomatic.yaml"
+    params:
+        prefix = "{outdir}/{sample}/muttime/{sample}"
+    shell:
+        """
+        python scripts/muttime.py --vcf {input.vcf} --seg {input.seg} --purity {params.purity} --prefix {params.prefix} > {log} 2>&1
+        """
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PhylogicNDT — three rules. All shell-only; no Snakemake script: directive.
