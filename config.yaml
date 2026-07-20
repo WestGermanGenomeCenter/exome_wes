@@ -2,7 +2,7 @@
 # config.yaml
 # ══════════════════════════════════════════════════════════════════════════════
 
-samplesheet: samplesheet.csv
+samplesheet: samplesheet_part2.csv
 
 # output dir for all analysis:
 output_dir: "/mnt/data/pipelines/exome_pyclone/pipeline/results_test2"
@@ -32,7 +32,7 @@ reference:
 #               https://caravagnalab.github.io/VIBER/authors.html#citation
 # "orchard"   - https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1012653
 #               https://github.com/morrislab/orchard
-clustering_tool: orchard
+clustering_tool: orchard,viber,pyclone6
 
 
 # kraken2 for contamination detection

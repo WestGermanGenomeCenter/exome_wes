@@ -97,21 +97,58 @@ OUTDIR = config["output_dir"]
 # Clustering tool selector
 # ══════════════════════════════════════════════════════════════════════════════
 
-CLUSTERING_TOOL = config.get("clustering_tool", "phylogic")
+# Snakefile — replace the clustering_tool block
+
+# ── Clustering tools ──────────────────────────────────────────────────────────
+# Any comma-separated subset of: phylogic  pyclone6  viber  orchard
+# Examples:
+#   clustering_tool: "pyclone6"
+#   clustering_tool: "viber,pyclone6"
+#   clustering_tool: "phylogic,pyclone6,viber,orchard"
+_VALID_TOOLS = {"phylogic", "pyclone6", "viber", "orchard"}
+
+CLUSTERING_TOOLS = {
+    t.strip().lower()
+    for t in str(config.get("clustering_tool", "phylogic")).split(",")
+}
+unknown = CLUSTERING_TOOLS - _VALID_TOOLS
+if unknown:
+    raise ValueError(
+        f"Unknown clustering_tool(s): {unknown}. "
+        f"Valid choices: {_VALID_TOOLS}"
+    )
+
 
 def cluster_outputs(sample):
-    """Return final output paths for the active clustering tool."""
-    if CLUSTERING_TOOL == "pyclone6":
-        return [f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
-                f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_report.pdf",
-                f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf"]
-    if CLUSTERING_TOOL == "viber":
-        return [f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv",
-                f"{OUTDIR}/{sample}/viber/viber_report.pdf"]
-    if CLUSTERING_TOOL == "orchard":
-        return [f"{OUTDIR}/{sample}/orchard/{sample}_tree.pdf"]
-    return [f"{OUTDIR}/{sample}/phylogic/{sample}.cluster_ccfs.txt",
-            f"{OUTDIR}/{sample}/phylogic/{sample}.phylogic_report.html"]
+    """Return output paths for every active clustering tool."""
+    out = []
+    if "pyclone6" in CLUSTERING_TOOLS:
+        out += [
+            f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_results.tsv",
+            f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_report.pdf",
+            f"{OUTDIR}/{sample}/pyclone6/{sample}_pyclone6_plot.pdf",
+        ]
+    if "viber" in CLUSTERING_TOOLS:
+        out += [
+            f"{OUTDIR}/{sample}/viber/{sample}_viber_clusters.tsv",
+            f"{OUTDIR}/{sample}/viber/viber_report.pdf",
+
+        ]
+    if "orchard" in CLUSTERING_TOOLS:
+        out += [
+            f"{OUTDIR}/{sample}/orchard/{sample}_tree.pdf",
+        ]
+    if "phylogic" in CLUSTERING_TOOLS:
+        out += [
+            f"{OUTDIR}/{sample}/phylogic/{sample}.cluster_ccfs.txt",
+            f"{OUTDIR}/{sample}/phylogic/{sample}.phylogic_report.html",
+        ]
+    return out
+
+
+
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
