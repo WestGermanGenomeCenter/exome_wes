@@ -1034,6 +1034,7 @@ rule extract_viber:
 
 rule report_viber:
     input:
+        posterios = "{outdir}/{sample}/viber/posterior.tsv", # so that extract runs before report
         tsv = "{outdir}/{sample}/viber/{sample}_viber_input.tsv",
         rds ="{outdir}/{sample}/viber/{sample}_viber_fit.rds",
         clusters = "{outdir}/{sample}/viber/{sample}_viber_clusters.tsv"
