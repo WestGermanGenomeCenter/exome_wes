@@ -165,6 +165,7 @@ rule all:
         expand("{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",         sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/facets/{sample}_facets_qc.txt",            sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/muttime/{sample}_mutations.tsv",            sample=SAMPLES,outdir=OUTDIR),
+        expand("{outdir}/{sample}/cnaqc/{sample}_cnaqc_report.pdf",            sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",              sample=SAMPLES,outdir=OUTDIR),
         expand("{outdir}/{sample}/kraken/{sample}_report", sample=SAMPLES, outdir=OUTDIR)
             if config.get("kraken2", {}).get("kraken2_active", False) else [],
@@ -236,7 +237,6 @@ rule fastqc_trimmed:
 
 
 # kraken2:
-#        expand("{outdir}/{sample}/kraken/{sample}_report",              sample=SAMPLES,outdir=OUTDIR),
 rule kraken2:
     input:
         r1   = "{outdir}/{sample}/trimmed/{sample}_tumor_R1.fastq.gz",
@@ -368,7 +368,6 @@ rule mosdepth:
 # Somatic Calling
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# need to rebuild like this: singularity run -B /usr/lib/locale/:/usr/lib/locale/ deepsomatic_1.10.0.sif  run_deepsomatic works now as user
 rule deepsomatic:
     # DeepSomatic v1.10.0: joint CNN on tumor+normal pileup images.
     # FILTER field: PASS=somatic, GERMLINE=in normal, RefCall=low-evidence.
@@ -584,8 +583,30 @@ rule cnaqc:
         """
 
 
-# add muttime.py python muttime3.py --vcf ../synovial_sarcoma_WXS_2025_sample1/deepsomatic/synovial_sarcoma_WXS_2025_sample1_somatic_pass.vcf.gz --seg ../synovial_sarcoma_WXS_2025_sample1/facets/synovial_sarcoma_WXS_2025_sample1_cnv_segments.tsv --purity ../synovial_sarcoma_WXS_2025_sample1/phylogic/synovial_sarcoma_WXS_2025_sample1_purity.txt --prefix test1_synovial2
+rule report_cnaqc:
+    input:
+        rds  = "{outdir}/{sample}/cnaqc/{sample}_cnaqc.rds",
+    output:
+        report = "{outdir}/{sample}/cnaqc/{sample}_cnaqc_report.pdf",
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 2,
+        mem_gb   = lambda wildcards, attempt: 12 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1,
+    message: "CNAqc report: {wildcards.sample}"
+    log: "{outdir}/logs/{sample}/cnaqc_report.log"
+    conda: "envs/report_cnaqc.yaml"
+    params:
+        purity_tol = config.get("cnaqc", {}).get("purity_tolerance", 0.05),
+        dir = "{outdir}/{sample}/cnaqc/",
+        sample = "{wildcards.sample}",
+    shell:
+        """
+        Rscript --vanilla scripts/prep_cnaqc_report.R --rds {input.rds} --outdir {params.dir} > {log} 2>&1
+        python scripts/cnaqc_report.py --dir {params.dir} --output {output.report} --sample {params.sample} > {log} 2>&1
+        """
 
+# 10052  Rscript extract_cnaqc_rds.R --rds synovial_sarcoma_WXS_2025_sample1_cnaqc.rds --outdir .
+# python cnaqc_report2.py  --dir /mnt/data/pipelines/exome_pyclone/pipeline/results_test2/synovial_sarcoma_WXS_2025_sample1/cnaqc --output cnaqc_report_test3.pdf --mutations mutations.tsv --cna cna_clonal.tsv --karyotype-summary karyotype_summary.tsv --metadata metadata.json --qc-txt synovial_sarcoma_WXS_2025_sample1_cnaqc_qc.txt --sample synovial_test
 
 rule muttime:
     input:
@@ -607,7 +628,7 @@ rule muttime:
         prefix = "{outdir}/{sample}/muttime/{sample}"
     shell:
         """
-        python scripts/muttime.py --vcf {input.vcf} --seg {input.seg} --purity {params.purity} --prefix {params.prefix} > {log} 2>&1
+        python scripts/muttime.py --vcf {input.vcf} --seg {input.seg} --purity {input.purity} --prefix {params.prefix} > {log} 2>&1
         """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -800,7 +821,7 @@ rule pyclone6:
         n_restarts = config.get("pyclone6", {}).get("n_restarts",  10),
         num_iters  = config.get("pyclone6", {}).get("num_iters", 10000),
         density    = config.get("pyclone6", {}).get("density", "beta-binomial"),
-        outdir     = "{outdir}/{sample}/pyclone6.hdf5",
+        outdir     = "{outdir}/{sample}/pyclone6/pyclone6.hdf5",
         results_tmp = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results_tmp.tsv",
         hdf5_copy = "{outdir}/{sample}/pyclone6_{sample}.hdf5",
     shell:
@@ -848,7 +869,7 @@ rule pyclone_plot:
         time_hrs = lambda wildcards, attempt: attempt * 4,
     message: "Plotting the pyclone6 results for sample {wildcards.sample}"
     params:
-        outdir     = "{outdir}/{sample}/pyclone6.hdf5",
+        outdir     = "{outdir}/{sample}/pyclone6/pyclone6.hdf5",
         results_tmp = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_results_tmp.tsv",
         hdf5_copy = "{outdir}/{sample}/pyclone6_{sample}.hdf5",
     log: "{outdir}/logs/{sample}/pyclone6_report.log"
@@ -936,7 +957,6 @@ rule orchard_run:
 
         python scripts/orchard_report.py --npz {output.npz} --params {input.params} --ssm {input.ssm} --sample {wildcards.sample} -o {params.pdf} >> {log} 2>&1
         """
-# add python ../../../scripts/orchard_report.py --npz st015.orchard.npz --params st015.params.json --ssm st015.ssm --sample st015 -o test_orchard_report.pdf
 
 
         
@@ -1006,7 +1026,6 @@ rule viber:
         """
 
 
-# now plot this all
 
 rule extract_viber:
     input:
@@ -1067,21 +1086,14 @@ rule multiqc:
     # Aggregates: FastQC (raw + trimmed), fastp, GATK MarkDuplicates,
     # mosdepth, bcftools stats. One HTML report per pipeline run.
     input:
-#        fqc_raw   = expand("{outdir}/{sample}/qc/fastqc_raw/{sample}_{type}_R1_fastqc.zip",
-#                           sample=SAMPLES, type=["tumor","normal"]),
         fqc_trim  = expand("{outdir}/{sample}/qc/fastqc_trimmed/{sample}_{type}_R1_fastqc.zip",
                            sample=SAMPLES, type=["tumor","normal"],outdir=OUTDIR),
         fastp     = expand("{outdir}/{sample}/qc/fastp/{sample}_{type}_fastp.json",
                            sample=SAMPLES, type=["tumor","normal"],outdir=OUTDIR),
-#        picard    = expand("{outdir}/{sample}/qc/picard/{sample}_{type}_dupmetrics.txt",
-#                           sample=SAMPLES, type=["tumor","normal"],outdir=OUTDIR),
         mosdepth  = expand("{outdir}/{sample}/qc/mosdepth/{sample}_{type}.mosdepth.summary.txt",
                            sample=SAMPLES, type=["tumor","normal"],outdir=OUTDIR),
-#        bcfstats  = expand("{outdir}/{sample}/deepsomatic/{sample}_somatic_bcfstats.txt",
-#                           sample=SAMPLES,outdir=OUTDIR), # enable later again once without-filter works
     output:
         html = "{outdir}/multiqc/multiqc_report.html",
-    
     resources:
         threads  = lambda wildcards, attempt: attempt * 2,
         mem_gb   = lambda wildcards, attempt: 8 + attempt,
