@@ -317,7 +317,10 @@ def page_summary_table(pdf, d, sample_id):
     ]
     for i, cl in enumerate(clusters):
         phi_v = float(phi_best[i + 1, 0])
-        ccf   = min(phi_v * 2, 1.0)
+        # CCF ≈ φ directly: var_read_prob is fixed at 0.5 in the SSM (standard
+        # diploid-het assumption), so E[VAF] = 0.5·φ  →  φ already equals 2·VAF,
+        # i.e. φ already IS the CCF proxy. Multiplying by 2 again double-counts.
+        ccf   = min(phi_v, 1.0)
         cls   = "Clonal" if phi_v >= 0.40 else ("Subclonal" if phi_v >= 0.15 else "Low-CCF")
         rows.append([f"Cluster C{i+1}",
                      f"φ={phi_v:.4f}  CCF≈{ccf:.3f}  n={len(cl)}  [{cls}]"])
@@ -343,7 +346,8 @@ def page_summary_table(pdf, d, sample_id):
         "Orchard infers a ranked ensemble of tumour phylogenetic trees using a branch-and-bound "
         "algorithm. Trees are sorted by log-likelihood (best first). "
         "φ = population frequency (fraction of ALL cells carrying that cluster's mutations). "
-        "CCF ≈ 2φ under diploid heterozygous copy-neutral loci.")
+        "CCF ≈ φ directly: var_read_prob=0.5 in the SSM already encodes the diploid-het VAF↔φ "
+        "relationship, so φ already IS the CCF proxy.")
     _save(pdf, fig)
 
 
@@ -534,7 +538,8 @@ def page_ccf(pdf, d, sample_id):
     fig, ax = _new_page("Estimated Cancer Cell Fraction (CCF)  (best tree)", sample_id)
 
     cls_labels = [f"C{k+1}" for k in range(K)]
-    ccfs       = [min(float(phi_b[k + 1]) * 2, 1.0) for k in range(K)]
+    # CCF ≈ φ directly (see note in page_summary_table on why NOT 2φ)
+    ccfs       = [min(float(phi_b[k + 1]), 1.0) for k in range(K)]
     cols       = [_nc(k + 1) for k in range(K)]
     x          = np.arange(K)
 
@@ -551,12 +556,14 @@ def page_ccf(pdf, d, sample_id):
     ax.set_xticklabels(cls_labels, fontsize=10)
     ax.set_ylim(0, 1.35)
     ax.legend(fontsize=9)
-    _style(ax, "CCF = min(2φ, 1.0) per Cluster  (diploid assumption)",
+    _style(ax, "CCF ≈ φ per Cluster  (diploid, var_read_prob=0.5 assumption)",
            "Cluster", "Cancer Cell Fraction (CCF)")
     _caption(fig,
         "CCF (Cancer Cell Fraction) = estimated proportion of tumour cells carrying a cluster's mutations. "
-        "Computed as CCF ≈ 2φ, valid under diploid heterozygous copy-neutral loci. "
-        "Clusters with CCF ≈ 1 are clonal (founding event); lower-CCF clusters are subclonal.")
+        "Computed as CCF ≈ φ directly: Orchard's SSM fixes var_read_prob=0.5 (standard diploid-het "
+        "assumption), so E[VAF] = 0.5·φ, meaning φ already equals 2·VAF and already IS the CCF proxy — "
+        "no further doubling needed. Clusters with CCF ≈ 1 are clonal (founding event); lower-CCF "
+        "clusters are subclonal.")
     _save(pdf, fig)
 
 
@@ -590,7 +597,8 @@ def page_interpretation(pdf, d, sample_id):
         n_mut = len(clusters[k]) if k < len(clusters) else "?"
         par   = int(struct0[k])
         ch    = children.get(node, [])
-        ccf   = min(phi_v * 2, 1.0)
+        # CCF ≈ φ directly (see note in page_summary_table on why NOT 2φ)
+        ccf   = min(phi_v, 1.0)
         bio   = ("CLONAL — founding tumour event" if phi_v >= 0.40
                  else "SUBCLONAL — acquired in a cell subset" if phi_v >= 0.15
                  else "RARE SUBCLONE — very small cell fraction")
@@ -612,7 +620,8 @@ def page_interpretation(pdf, d, sample_id):
         "─" * 55,
         "φ = population frequency (fraction of ALL cells)",
         "η = clone-exclusive frequency (only this clone, not descendants)",
-        "CCF ≈ 2φ  (diploid heterozygous, 100% purity assumption)",
+        "CCF ≈ φ  (var_read_prob=0.5 in the SSM already encodes the diploid-het",
+        "          VAF↔φ relationship, so φ already IS the CCF proxy)",
     ]
 
     ax.text(0.02, 0.97, "\n".join(lines),

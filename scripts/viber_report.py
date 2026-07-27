@@ -206,7 +206,15 @@ def load_data(mutations_path, parameters_path, posterior_path, elbo_path,
         elbo["ELBO"] = pd.to_numeric(elbo["ELBO"], errors="coerce")
         if "iteration" not in elbo.columns:
             elbo["iteration"] = range(1, len(elbo) + 1)
-
+            # now some print commands to check
+    print("\n=== load_data ===")
+    print("mut columns:", mut.columns.tolist())
+    print("mut shape:", mut.shape)
+    print("par columns:", par.columns.tolist())
+    if post is not None:
+        print("post columns:", post.columns.tolist())
+        print("post shape:", post.shape)
+    print("=================\n")
     return mut, par, post, elbo
 
 # ── pages ──────────────────────────────────────────────────────────────────────
@@ -534,17 +542,37 @@ def page_vaf_vs_posterior(pdf, mut, par, post, sample_id, pal):
 
 # ── p: posterior heatmap ──────────────────────────────────────────────────────
 def page_posterior_heatmap(pdf, mut, par, post, sample_id, pal):
+    print("\n=== page_posterior_heatmap ===")
+    print("mut columns:", mut.columns.tolist())
+    print("post columns:", post.columns.tolist())
     if post is None:
         return
     order        = _cluster_order(par)
+    print("order:", order)
     cluster_cols = [c for c in order if c in post.columns]
     if not cluster_cols:
         return
 
-    merged = (mut[["mutation_index","vaf","cluster"]]
-              .merge(post, on="mutation_index", how="inner")
-              .dropna(subset=cluster_cols)
-              .sort_values(["cluster","vaf"]))
+    merged = (
+        mut[["mutation_index", "vaf", "cluster"]]
+        .merge(post, on="mutation_index", how="inner")
+    )
+    print("cluster_cols:", cluster_cols if 'cluster_cols' in locals() else "not yet")
+
+    print("merged columns:", merged.columns.tolist())
+    print("merged shape:", merged.shape)
+    print("'cluster' in merged:", "cluster" in merged.columns)
+    print("duplicate columns:", merged.columns[merged.columns.duplicated()].tolist())
+    print(merged.head())
+    
+    merged = (
+        merged
+        .dropna(subset=cluster_cols)
+        .sort_values(["cluster", "vaf"])
+    )    
+    
+    
+    
 
     MAX_ROWS = 500
     if len(merged) > MAX_ROWS:
