@@ -92,3 +92,7 @@ orchard:
   beam_width:   10
   branching:    100
   n_parallel:   4
+
+
+all_report:
+  all_report_active: True # enable this to enforce all tools to run, will create a nice overview report at the end

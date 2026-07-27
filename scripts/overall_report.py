@@ -670,50 +670,80 @@ def page_overview(pdf, sample_id, mut_tables, cluster_tables, purity_df, clonal_
     _header(fig, "Cross-Tool Comparison — Overview", sample_id)
     ax.axis("off")
 
-    rows = [["Clonal-threshold used (uniform, all tools)", f"CCF ≥ {clonal_threshold:.2f}"]]
+    fig.text(0.03, 0.945, f"Clonal threshold used (uniform, applied identically to every "
+             f"tool's CCF): CCF ≥ {clonal_threshold:.2f}",
+             fontsize=9.5, fontstyle="italic", color="#333333", transform=fig.transFigure)
+
+    col_labels = ["Tool", "Mutations", "Matchable", "Clusters", f"Clonal ≥{clonal_threshold:.2f}"]
+    rows = []
     for tool in TOOL_ORDER:
         mut = mut_tables.get(tool)
         cl  = cluster_tables.get(tool)
         if mut is None or mut.empty:
-            rows.append([tool, "not available / did not run"])
+            rows.append([tool, "—", "—", "—", "did not run"])
             continue
         n_mut = len(mut)
-        n_id  = mut["match_key"].notna().sum()
-        n_cl  = cl["cluster_label"].nunique() if (cl is not None and not cl.empty) else "N/A"
-        extra = f"{n_cl} clusters, " if TOOL_IS_CLUSTERING[tool] else "(timing classes, not clusters), "
-        rows.append([tool, f"{n_mut} mutations ({n_id} matchable), {extra}"
-                            f"clonal fraction ≥{clonal_threshold:.2f}: "
-                            f"{100*mut['ccf'].ge(clonal_threshold).mean():.1f}%"])
+        n_id  = int(mut["match_key"].notna().sum())
+        if TOOL_IS_CLUSTERING[tool]:
+            n_cl = str(cl["cluster_label"].nunique()) if (cl is not None and not cl.empty) else "N/A"
+        else:
+            n_cl = "n/a (timing)"
+        frac = f"{100*mut['ccf'].ge(clonal_threshold).mean():.1f}%"
+        rows.append([tool, str(n_mut), str(n_id), n_cl, frac])
 
-    tbl = ax.table(cellText=rows, colLabels=["Tool", "Status"],
-                   loc="upper center", cellLoc="left", bbox=[0.03, 0.55, 0.94, 0.38])
-    tbl.auto_set_font_size(False); tbl.set_fontsize(9); tbl.scale(1.0, 1.8)
-    for j in range(2):
+    tbl = ax.table(cellText=rows, colLabels=col_labels,
+                   loc="upper center", cellLoc="center",
+                   colWidths=[0.24, 0.16, 0.16, 0.20, 0.24],
+                   bbox=[0.03, 0.66, 0.94, 0.26])
+    tbl.auto_set_font_size(False); tbl.set_fontsize(9.5); tbl.scale(1.0, 1.9)
+    for j in range(len(col_labels)):
         tbl[0, j].set_facecolor("#2C3E50")
         tbl[0, j].set_text_props(color="white", fontweight="bold")
-    for i in range(1, len(rows) + 1):
+    for i, tool in enumerate(TOOL_ORDER, start=1):
         shade = "#F2F4F4" if i % 2 == 0 else "white"
-        for j in range(2):
+        for j in range(len(col_labels)):
             tbl[i, j].set_facecolor(shade)
-    for i, tool in enumerate(["(threshold)"] + TOOL_ORDER, start=0):
-        if i == 0:
-            continue
-        colour = TOOL_COLOURS.get(tool, "#CCCCCC")
         if mut_tables.get(tool) is not None and not mut_tables[tool].empty:
-            tbl[i + 1, 0].set_facecolor(colour)
-            tbl[i + 1, 0].set_text_props(color="white", fontweight="bold")
+            tbl[i, 0].set_facecolor(TOOL_COLOURS.get(tool, "#CCCCCC"))
+            tbl[i, 0].set_text_props(color="white", fontweight="bold")
 
-    n_running = sum(1 for t in TOOL_ORDER
-                    if mut_tables.get(t) is not None and not mut_tables[t].empty)
+    # cluster-count range, purely descriptive (not a ranking/score)
+    cluster_counts = {t: cluster_tables[t]["cluster_label"].nunique()
+                      for t in TOOL_ORDER if TOOL_IS_CLUSTERING[t]
+                      and cluster_tables.get(t) is not None and not cluster_tables[t].empty}
+    mut_counts = {t: len(mut_tables[t]) for t in TOOL_ORDER
+                  if mut_tables.get(t) is not None and not mut_tables[t].empty}
+
+    notes = []
+    if cluster_counts and max(cluster_counts.values()) != min(cluster_counts.values()):
+        lo_t = min(cluster_counts, key=cluster_counts.get)
+        hi_t = max(cluster_counts, key=cluster_counts.get)
+        notes.append(f"Cluster counts range from {cluster_counts[lo_t]} ({lo_t}) "
+                     f"to {cluster_counts[hi_t]} ({hi_t}).")
+    if mut_counts and max(mut_counts.values()) != min(mut_counts.values()):
+        lo_t = min(mut_counts, key=mut_counts.get)
+        hi_t = max(mut_counts, key=mut_counts.get)
+        notes.append(f"Mutation counts range from {mut_counts[lo_t]} ({lo_t}) "
+                     f"to {mut_counts[hi_t]} ({hi_t}) — see the mutation-coverage page "
+                     f"for whether this reflects different input filtering.")
+    if notes:
+        fig.text(0.03, 0.60, "  •  ".join(notes), fontsize=8.5, color="#555555",
+                 wrap=True, transform=fig.transFigure)
 
     if purity_df is not None and not purity_df.empty:
         pur_rows = [[r["source"], f"{r['purity']:.4f}"] for _, r in purity_df.iterrows()]
         tbl2 = ax.table(cellText=pur_rows, colLabels=["Upstream purity source", "Value"],
-                        loc="lower center", cellLoc="left", bbox=[0.03, 0.05, 0.94, 0.32])
+                        loc="lower center", cellLoc="left",
+                        colWidths=[0.65, 0.29],
+                        bbox=[0.03, 0.08, 0.94, 0.36])
         tbl2.auto_set_font_size(False); tbl2.set_fontsize(9); tbl2.scale(1.0, 1.8)
         for j in range(2):
             tbl2[0, j].set_facecolor("#2C3E50")
             tbl2[0, j].set_text_props(color="white", fontweight="bold")
+        for i in range(1, len(pur_rows) + 1):
+            shade = "#F2F4F4" if i % 2 == 0 else "white"
+            for j in range(2):
+                tbl2[i, j].set_facecolor(shade)
         spread = purity_df["purity"].max() - purity_df["purity"].min()
         note = (f"Purity spread across sources: {spread:.4f}. " +
                 ("This is a candidate explanation if downstream tools disagree — "
@@ -723,12 +753,14 @@ def page_overview(pdf, sample_id, mut_tables, cluster_tables, purity_df, clonal_
                  "to explain any downstream disagreement."))
         _caption(fig, note, y=0.02)
     else:
-        fig.text(0.5, 0.20, "No upstream purity files found (FACETS / CNAqc / "
+        fig.text(0.5, 0.30, "No upstream purity files found (FACETS / CNAqc / "
                  "PhylogicNDT purity.txt / PyClone6 input) — purity cross-check skipped.",
                  ha="center", fontsize=9, color="#888888", transform=fig.transFigure)
 
+    n_running = sum(1 for t in TOOL_ORDER
+                    if mut_tables.get(t) is not None and not mut_tables[t].empty)
     if n_running < 2:
-        fig.text(0.5, 0.48, "Fewer than 2 tools produced usable output — "
+        fig.text(0.5, 0.62, "Fewer than 2 tools produced usable output — "
                  "cross-tool comparison pages will be skipped.",
                  ha="center", fontsize=10, color="#C0392B", fontweight="bold",
                  transform=fig.transFigure)
@@ -911,11 +943,16 @@ def page_pairwise_scatter(pdf, sample_id, wide, tools_present):
         ax.scatter(both[f"{t1}_ccf"], both[f"{t2}_ccf"], s=14, alpha=0.5,
                    color="#4C72B0", edgecolors="none")
         ax.plot([0,1],[0,1], color="#AAAAAA", ls="--", lw=1.2)
-        if len(both) >= 3:
+        std1 = both[f"{t1}_ccf"].std()
+        std2 = both[f"{t2}_ccf"].std()
+        if len(both) >= 3 and std1 > 0 and std2 > 0:
             r = np.corrcoef(both[f"{t1}_ccf"], both[f"{t2}_ccf"])[0,1]
-            ax.text(0.05, 0.93, f"r = {r:.2f}\nn = {len(both)}",
-                    transform=ax.transAxes, fontsize=8.5, va="top",
-                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
+            label = f"r = {r:.2f}\nn = {len(both)}"
+        else:
+            label = f"n = {len(both)}\n(r undefined —\nconstant CCF)"
+        ax.text(0.05, 0.93, label,
+                transform=ax.transAxes, fontsize=8.5, va="top",
+                bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
         ax.set_xlim(0,1.05); ax.set_ylim(0,1.05)
         _style(ax, f"{t1} vs {t2}", f"{t1} CCF", f"{t2} CCF", fs=9.5)
 
@@ -1044,6 +1081,65 @@ def page_muttime_crosswalk(pdf, sample_id, wide, tools_present):
         "are mostly faded. muttime's timing classes are derived from copy-number + CCF thresholds "
         "(see muttime's own report), not from these clustering tools, so this is an independent "
         "cross-check of the evolutionary timeline.")
+    _save(pdf, fig)
+
+
+def page_mutation_coverage(pdf, sample_id, wide, tools_present):
+    """How many mutations each tool reports, how many are shared vs
+    tool-exclusive. Purely descriptive counts -- no scores."""
+    if wide.empty or not tools_present:
+        _no_data_page(pdf, "Mutation Set Coverage Across Tools", sample_id,
+                      "No tools have matchable per-mutation data.")
+        return
+
+    ccf_cols = [f"{t}_ccf" for t in tools_present]
+    coverage = wide[ccf_cols].notna().sum(axis=1)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6))
+    _header(fig, "Mutation Set Coverage Across Tools", sample_id)
+    fig.subplots_adjust(bottom=0.20, top=0.86, wspace=0.35)
+
+    # left: histogram of "how many tools cover this mutation"
+    max_n = len(tools_present)
+    counts = [int((coverage == k).sum()) for k in range(1, max_n + 1)]
+    bars = ax1.bar(range(1, max_n + 1), counts, color="#4C72B0",
+                   edgecolor="white", alpha=0.85)
+    for bar, c in zip(bars, counts):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(counts)*0.01,
+                 str(c), ha="center", fontsize=9)
+    ax1.set_xticks(range(1, max_n + 1))
+    _style(ax1, "Mutations by Number of Tools Covering Them",
+           "Number of tools reporting this mutation", "Mutation count")
+
+    # right: per-tool total vs "core" (covered by every tool present)
+    n_core = int((coverage == max_n).sum())
+    tool_totals = [int(wide[f"{t}_ccf"].notna().sum()) for t in tools_present]
+    tool_exclusive = [
+        int(((wide[f"{t}_ccf"].notna()) & (coverage == 1)).sum())
+        for t in tools_present
+    ]
+    x = np.arange(len(tools_present))
+    ax2.bar(x, tool_totals, color=[TOOL_COLOURS.get(t,"#888888") for t in tools_present],
+            alpha=0.35, edgecolor="white", label="Total reported by tool")
+    ax2.bar(x, tool_exclusive, color=[TOOL_COLOURS.get(t,"#888888") for t in tools_present],
+            alpha=0.9, edgecolor="white", label="Exclusive to this tool only")
+    ax2.axhline(n_core, color="#333333", ls="--", lw=1.2,
+               label=f"Core set (all {max_n} tools): {n_core}")
+    for i, tot in enumerate(tool_totals):
+        ax2.text(i, tot + max(tool_totals)*0.01, str(tot), ha="center", fontsize=8)
+    ax2.set_xticks(x); ax2.set_xticklabels(tools_present, fontsize=9)
+    ax2.legend(fontsize=7.5)
+    _style(ax2, "Per-tool Totals vs Tool-exclusive Mutations",
+           "Tool", "Mutation count")
+
+    _caption(fig,
+        "Left: for each mutation, how many of the available tools reported a CCF for it. "
+        "A large spike at the maximum (right-most bar) means most mutations are shared "
+        "across all tools; a spread toward the left means tools are working from "
+        "substantially different mutation sets. Right: total mutations each tool reported "
+        "(faded) vs mutations reported by that tool alone and no other (solid). A tool with "
+        "many exclusive mutations may be using different input filtering (e.g. different "
+        "VAF/depth thresholds upstream) than the others.")
     _save(pdf, fig)
 
 
@@ -1198,6 +1294,7 @@ def main():
         page_ranked_cluster_ccf(pdf, sample, cluster_tables)
 
         if not wide.empty and len(tools_present) >= 2:
+            page_mutation_coverage(pdf, sample, wide, tools_present)
             page_concordance_matrix(pdf, sample, wide, tools_present, args.clonal_threshold)
             page_pairwise_scatter(pdf, sample, wide, tools_present)
             page_ccf_trajectories(pdf, sample, wide, tools_present)

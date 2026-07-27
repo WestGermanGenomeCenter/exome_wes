@@ -170,6 +170,8 @@ rule all:
         expand("{outdir}/{sample}/kraken/{sample}_report", sample=SAMPLES, outdir=OUTDIR)
             if config.get("kraken2", {}).get("kraken2_active", False) else [],
         # kraken conditional based on config.yaml setting
+        expand("{outdir}/{sample}/{sample}_comparison_report.pdf", sample=SAMPLES, outdir=OUTDIR)
+            if config.get("all_report", {}).get("all_report_active", False) else [],
                 # Clustering (tool-dependent)
         [f for s in SAMPLES for f in cluster_outputs(s)],
 
@@ -1106,4 +1108,42 @@ rule multiqc:
     shell:
         """
         multiqc {params.outdir}  -o {params.outdir}/multiqc  --filename multiqc_report.html --force >{log} 2>&1
+        """
+
+
+rule report_all:
+    input:
+        posterios = "{outdir}/{sample}/viber/posterior.tsv", # so that extract runs before report
+        plot   = "{outdir}/{sample}/orchard/{sample}_tree.pdf", # Changed to PDF    
+        report  = "{outdir}/{sample}/pyclone6/{sample}_pyclone6_report.pdf",
+        mut_report   = "{outdir}/{sample}/muttime/{sample}_timing_report.pdf",
+        html  = "{outdir}/{sample}/phylogic/{sample}.phylogic_report.html",
+        cna_report = "{outdir}/{sample}/cnaqc/{sample}_cnaqc_report.pdf",
+
+    output:
+        all_pdf = "{outdir}/{sample}/{sample}_comparison_report.pdf"
+    resources:
+        threads = lambda wildcards, attempt: attempt * 2,
+        mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "comparing all available outputs: {wildcards.sample}"
+    log:
+        "{outdir}/logs/{sample}/compare_outputs.log"
+    conda:
+        "envs/report_cnaqc.yaml"
+    params:
+        dir = "{outdir}/{sample}/",
+        sample_name = "{sample}",
+        viber_dir = "{outdir}/{sample}/viber",
+        orchard_dir = "{outdir}/{sample}/orchard",
+        muttime_dir = "{outdir}/{sample}/muttime",
+        pyclone_dir ="{outdir}/{sample}/pyclone6",
+        phylogic_dir = "{outdir}/{sample}/phylogic",
+        cnaqc_dir = "{outdir}/{sample}/cnaqc",
+    shell:
+        """
+        python scripts/overall_report.py --sample {params.sample_name} --viber-dir {params.viber_dir} --cnaqc-dir {params.cnaqc_dir} \
+        --orchard-dir {params.orchard_dir} --pyclone6-dir {params.pyclone_dir}  --muttime-dir {params.muttime_dir} \
+        --output-prefix {params.sample_name} > {log} 2>&1
         """
