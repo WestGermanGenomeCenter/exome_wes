@@ -328,7 +328,8 @@ rule mark_duplicates:
         """
         set -euo pipefail
         cd {params.dir} 2>> {log}
-        rm -f {output.bam} rm -f {output.bai} # just to make sure on re-run of interrupted run that nothing gets concatenated. 
+        rm -f {output.bam} 
+        rm -f {output.bai} # just to make sure on re-run of interrupted run that nothing gets concatenated. 
         rm -f  {params.tmp_files} # removing only tmp bam files of the current sample and type, so if the other one is still sorting its fine
         # now the actual samtools chain
         samtools collate -@ {resources.threads} -O -u {input.sam} | samtools fixmate -@ {resources.threads} -m -u - - | samtools sort -@ {resources.threads} -u - | samtools markdup -@ {resources.threads} - {output.bam}
@@ -686,6 +687,7 @@ rule phylogic_prepare_sif:
         time_hrs = lambda wildcards, attempt: attempt * 1,
     message: "Creating PhylogicNDT SIF: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/phylogic_prepare_sif.log"
+    conda: "envs/cnaqc.yaml"
     shell:
         """
         purity=$(cat {input.purity})
@@ -1135,6 +1137,7 @@ rule report_all:
     params:
         dir = "{outdir}/{sample}/",
         sample_name = "{sample}",
+        prefx="{outdir}/{sample}/{sample}",
         viber_dir = "{outdir}/{sample}/viber",
         orchard_dir = "{outdir}/{sample}/orchard",
         muttime_dir = "{outdir}/{sample}/muttime",
@@ -1145,5 +1148,5 @@ rule report_all:
         """
         python scripts/overall_report.py --sample {params.sample_name} --viber-dir {params.viber_dir} --cnaqc-dir {params.cnaqc_dir} \
         --orchard-dir {params.orchard_dir} --pyclone6-dir {params.pyclone_dir}  --muttime-dir {params.muttime_dir} \
-        --output-prefix {params.sample_name} > {log} 2>&1
+        --output-prefix {params.prefx} > {log} 2>&1
         """
