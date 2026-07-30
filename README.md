@@ -179,7 +179,7 @@ PATIENT_001,normal,/data/P001/normal_R1.fastq.gz,/data/P001/normal_R2.fastq.gz
 
 Each sample needs exactly one `tumor` row and one `normal` row. The same FASTQ cannot appear twice.
 
-### 2. Edit `config.yaml`
+### 2. Edit `config.yaml` and envs
 
 ```yaml
 output_dir: /path/to/results
@@ -193,10 +193,26 @@ reference:
 clustering_tool: phylogic   # or: pyclone6, viber
 ```
 
+Additionally, all envs in envs/ are currently setup to work on our local HPC, HILBERT.
+If you want this pipeline to work on your hardware, open each env.yaml in envs/ and edit the channels. 
+I did already make some comments to make this easy.
+
+Also, before running you need to make sure that in the primary pipeline execution env singularity is installed / usable, otherwise snakemake will complain and not start the variantcalling with deepsomatic
+
 ### 3. Run
 
 ```bash
 # Dry run (check DAG without executing)
+
+# on HILBERT
+bash runPipeline.sh
+
+# on Fluse
+bash runPipeline_local.sh
+
+# other machines:
+
+
 snakemake -n --use-conda --use-singularity --configfile config.yaml
 
 # Local execution
