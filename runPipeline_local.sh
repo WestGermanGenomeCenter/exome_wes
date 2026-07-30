@@ -1,1 +1,1 @@
-ionice nice snakemake -s Snakefile --cores 86 --use-conda --jobs 3 --rerun-incomplete --keep-going
+ionice nice snakemake -s Snakefile --cores 86 --use-conda --jobs 3 --rerun-incomplete --keep-going --conda-frontend conda

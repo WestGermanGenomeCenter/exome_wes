@@ -1,5 +1,11 @@
 name: exome_align
-channels: [bioconda, conda-forge, nodefaults]
+channels:
+# disable the line below when using the hpc HILBERT
+#  - [bioconda, conda-forge, nodefaults]
+# disable the 3 lines below when using fluse / other places
+  - http://conda.repo.test.hhu.de/conda-forge
+  - http://conda.repo.test.hhu.de/bioconda
+  - http://conda.repo.test.hhu.de/main
 dependencies:
   - pigz=2.8
   - kraken2=2.17.1

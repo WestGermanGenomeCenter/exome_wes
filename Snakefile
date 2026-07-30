@@ -385,7 +385,7 @@ rule deepsomatic:
     resources:
         threads  = lambda wildcards, attempt: attempt * 16,
         mem_gb   = lambda wildcards, attempt: 32 + (attempt * 8),
-        time_hrs = lambda wildcards, attempt: attempt * 6,
+        time_hrs = lambda wildcards, attempt: attempt * 16,
     message: "DeepSomatic tumor-normal calling: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/deepsomatic.log"
     singularity:
@@ -396,13 +396,23 @@ rule deepsomatic:
         tmpdir     = "{outdir}/{sample}/deepsomatic/tmp",
         extra      = config.get("deepsomatic",{}).get("extra_args",""),
         sif = config["singularity"]["deepsomatic"],
-        bind_dir = REF_DIR
+        bind_dir = REF_DIR,
+        bind2_dir = "{outdir}",
+        log_dir = "{outdir}/{sample}/deepsomatic/logging",
+        exec_dir = "{outdir}/{sample}/deepsomatic/",
+        report_title = "{sample}_deepsomatic",
+        vcf_stats_report = "true",
     shell:
         """
         mkdir -p {params.tmpdir}
-        singularity run -B /usr/lib/locale/:/usr/lib/locale/ -B {params.bind_dir}:{params.bind_dir} {params.sif}  \
+        module load Singularity >/dev/null 2>&1 ||  echo "Singularity module not loaded (already available or module command unavailable)" >> {log}
+        cd {params.exec_dir} >> {log} 2>&1
+        singularity run -B /usr/lib/locale/:/usr/lib/locale/ -B {params.bind_dir}:{params.bind_dir}  -B {params.bind2_dir}:{params.bind2_dir} {params.sif}  \
         run_deepsomatic \
             --model_type={params.model_type} --ref={input.ref} \
+            --logging_dir={params.log_dir} \
+            --report_title={params.report_title} \
+            --vcf_stats_report={params.vcf_stats_report} \
             --reads_tumor={input.tumor} --reads_normal={input.normal} \
             --output_vcf={output.vcf} {params.regions_arg} --output_gvcf={output.gvcf} \
             --num_shards={resources.threads} \
@@ -601,7 +611,7 @@ rule report_cnaqc:
     params:
         purity_tol = config.get("cnaqc", {}).get("purity_tolerance", 0.05),
         dir = "{outdir}/{sample}/cnaqc/",
-        sample = "{wildcards.sample}",
+        sample = "{sample}",
     shell:
         """
         Rscript --vanilla scripts/prep_cnaqc_report.R --rds {input.rds} --outdir {params.dir} > {log} 2>&1
@@ -661,7 +671,7 @@ rule phylogic_prep:
         time_hrs = lambda wildcards, attempt: attempt * 2,
     message: "PhylogicNDT prep (MAF + purity): {wildcards.sample}"
     log: "{outdir}/logs/{sample}/phylogic_prep.log"
-    conda: "envs/cnaqc.yaml"
+    conda: "envs/pyclone6.yaml"
     shell:
         """
         Rscript --vanilla scripts/build_phylogic_input2.R \
@@ -687,7 +697,7 @@ rule phylogic_prepare_sif:
         time_hrs = lambda wildcards, attempt: attempt * 1,
     message: "Creating PhylogicNDT SIF: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/phylogic_prepare_sif.log"
-    conda: "envs/cnaqc.yaml"
+    conda: "envs/pyclone6.yaml"
     shell:
         """
         purity=$(cat {input.purity})
@@ -789,7 +799,7 @@ rule pyclone6_prep:
         time_hrs = lambda wildcards, attempt: attempt * 1,
     message: "PyClone6 prep: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/pyclone6_prep.log"
-    conda: "envs/cnaqc.yaml"
+    conda: "envs/pyclone6.yaml"
     shell:
         """
         Rscript --vanilla scripts/build_pyclone6_input.R \
@@ -910,7 +920,7 @@ rule orchard_prep:
         time_hrs = lambda wildcards, attempt: attempt * 1,
     message: "Orchard input prep: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/orchard_prep.log"
-    conda: "envs/cnaqc.yaml"
+    conda: "envs/orchard.yaml"
     shell:
         """
         Rscript --vanilla scripts/build_orchard_input.R \
