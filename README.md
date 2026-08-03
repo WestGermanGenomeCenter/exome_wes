@@ -216,7 +216,7 @@ bash runPipeline_local.sh
 snakemake -n --use-conda --use-singularity --configfile config.yaml
 
 # Local execution
-snakemake --cores 16 --use-conda --use-singularity --configfile config.yaml
+snakemake --cores 128 --use-conda --use-singularity --configfile config.yaml
 
 # SLURM cluster
 snakemake --cores 64 --use-conda --use-singularity \

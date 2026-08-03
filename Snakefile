@@ -72,6 +72,8 @@ REF_DIR = Path(REF).parent
 def get_r1(wc): return LOOKUP[wc.sample][wc.type]["r1"]
 def get_r2(wc): return LOOKUP[wc.sample][wc.type]["r2"]
 
+# this here creates a readgroup for the incoming mapping. This takes available information and gets used during mapping.
+# makes the samplenames easy to understand from the bam files
 def get_rg(wc):
     lib = LOOKUP[wc.sample][wc.type].get("library", "")
 
@@ -313,7 +315,7 @@ rule mark_duplicates:
         stats = "{outdir}/{sample}/qc/samtools/{sample}_{type}_stats.txt",
     resources:
         threads  = lambda wildcards, attempt: min(attempt * 16, 32),   # markdup is memory/I/O bound, not fully linear scaling
-        mem_gb   = lambda wildcards, attempt: 16 + (attempt * 4),
+        mem_gb   = lambda wildcards, attempt: 16 + (attempt * 12),
         time_hrs = lambda wildcards, attempt: attempt * 2,
     message:
         "samtools markdup : {wildcards.sample} {wildcards.type}"
@@ -385,7 +387,7 @@ rule deepsomatic:
     resources:
         threads  = lambda wildcards, attempt: attempt * 16,
         mem_gb   = lambda wildcards, attempt: 32 + (attempt * 8),
-        time_hrs = lambda wildcards, attempt: attempt * 16,
+        time_hrs = lambda wildcards, attempt: attempt * 8,
     message: "DeepSomatic tumor-normal calling: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/deepsomatic.log"
     singularity:
