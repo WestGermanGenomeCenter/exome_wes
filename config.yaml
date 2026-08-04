@@ -94,5 +94,15 @@ orchard:
   n_parallel:   4
 
 
+
+
+
+# ---- extra reporting options ----------------------------------
+
+
 all_report:
   all_report_active: True # enable this to enforce all tools to run, will create a nice overview report at the end
+
+#            if config.get("kit_reports", {}).get("kit_reports_active", False) else [],
+kit_reports:
+  kit_reports_active: True # makes one pdf for tumor and one for normal, aims to visualize exome kit biases in a report pdf

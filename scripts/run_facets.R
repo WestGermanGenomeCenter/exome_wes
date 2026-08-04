@@ -47,12 +47,6 @@ qc <- c(
 )
 
 
-
-
-
-
-
-
 writeLines(qc, out_qc)
 
 pdf(out_pdf, width = 14, height = 8)

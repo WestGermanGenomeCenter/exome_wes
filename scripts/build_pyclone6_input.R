@@ -55,20 +55,6 @@ ref_c_v <- ref_c_v[keep]; alt_c_v <- alt_c_v[keep]
 
 cn_mat  <- mapply(get_cn, chrom_v, pos_v)
 
-# ── Write PyClone6 TSV ────────────────────────────────────────────────────────
-# Required cols: mutation_id, sample_id, ref_counts, alt_counts,
-#                normal_cn, minor_cn, major_cn, tumour_content
-#tsv <- data.table(
-#  mutation_id    = paste0(chrom_v, ":", pos_v, ":", ref_v, ">", alt_v),
-#  sample_id      = sname,
-#  ref_counts     = as.integer(ref_c_v),
-#  alt_counts     = as.integer(alt_c_v),
-#  normal_cn      = 2L,
-#  minor_cn       = cn_mat[2, ],
-#  major_cn       = cn_mat[1, ],
-#  tumour_content = purity
-#)
-
 
 # ── Write PyClone6 TSV ────────────────────────────────────────────────────────
 # Determine normal copy number dynamically based on sex chromosomes (assumes male baseline)

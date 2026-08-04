@@ -172,12 +172,17 @@ rule all:
         expand("{outdir}/{sample}/kraken/{sample}_report", sample=SAMPLES, outdir=OUTDIR)
             if config.get("kraken2", {}).get("kraken2_active", False) else [],
         # kraken conditional based on config.yaml setting
+        expand("{outdir}/{sample}/{sample}_kit_qc_normal.pdf", sample=SAMPLES, outdir=OUTDIR)
+            if config.get("kit_reports", {}).get("kit_reports_active", False) else [],
+        expand("{outdir}/{sample}/{sample}_kit_qc_tumor.pdf", sample=SAMPLES, outdir=OUTDIR)
+            if config.get("kit_reports", {}).get("kit_reports_active", False) else [],
         expand("{outdir}/{sample}/{sample}_comparison_report.pdf", sample=SAMPLES, outdir=OUTDIR)
             if config.get("all_report", {}).get("all_report_active", False) else [],
-                # Clustering (tool-dependent)
+                 # Clustering (tool-dependent)
         [f for s in SAMPLES for f in cluster_outputs(s)],
 
 
+#
 # ══════════════════════════════════════════════════════════════════════════════
 # QC & Trimming
 # ══════════════════════════════════════════════════════════════════════════════
@@ -390,8 +395,10 @@ rule deepsomatic:
         time_hrs = lambda wildcards, attempt: attempt * 8,
     message: "DeepSomatic tumor-normal calling: {wildcards.sample}"
     log: "{outdir}/logs/{sample}/deepsomatic.log"
-    singularity:
-        config.get("singularity",{}).get("deepsomatic","docker://google/deepsomatic:1.10.0")
+#    singularity:
+#        config.get("singularity",{}).get("deepsomatic","docker://google/deepsomatic:1.10.0")
+    conda:
+        "envs/deepsomatic.yaml"
     params:
         model_type = config.get("deepsomatic",{}).get("model_type","WES"),
         regions_arg = f"--regions {INTERVALS}" if config["deepsomatic"]["use_bed"] else "",
@@ -1162,3 +1169,78 @@ rule report_all:
         --orchard-dir {params.orchard_dir} --pyclone6-dir {params.pyclone_dir}  --muttime-dir {params.muttime_dir} \
         --output-prefix {params.prefx} > {log} 2>&1
         """
+
+
+
+
+
+rule report_kit_qc_tumor:
+    input:
+        ref    = REF,
+        bed = INTERVALS,
+        stats = "{outdir}/{sample}/qc/samtools/{sample}_tumor_stats.txt",
+        variants = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz",
+        facets_seg = "{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",  
+        facets_qc = "{outdir}/{sample}/facets/{sample}_facets_qc.txt",     
+        qc   = "{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",
+    output:
+        all_pdf = "{outdir}/{sample}/{sample}_kit_qc_tumor.pdf"
+    resources:
+        threads = lambda wildcards, attempt: attempt * 2,
+        mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "making exome kit report: {wildcards.sample}"
+    log:
+        "{outdir}/logs/{sample}/exome_tumor_report.log"
+    conda:
+        "envs/report_cnaqc.yaml"
+    params:
+        dir = "{outdir}/{sample}/",
+        sample_name = "{sample}_tumor",
+        md_prefix = "{outdir}/{sample}/qc/mosdepth/{sample}_tumor",
+
+    shell:
+        """
+        python scripts/exome_kit_qc_report.py --sample-name {params.sample_name} --reference {input.ref} --target-bed {input.bed} \
+        --mosdepth-prefix {params.md_prefix} --samtools-stats {input.stats} --vcf {input.variants} \
+        --facets-cncf {input.facets_seg} --facets-summary {input.facets_qc} \
+        --cnaqc-table {input.qc} --out {output.all_pdf} > {log} 2>&1
+        """
+
+
+
+rule report_kit_qc_normal:
+    input:
+        ref    = REF,
+        bed = INTERVALS,
+        stats = "{outdir}/{sample}/qc/samtools/{sample}_normal_stats.txt",
+        variants = "{outdir}/{sample}/deepsomatic/{sample}_somatic_pass.vcf.gz",
+        facets_seg = "{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",  
+        facets_qc = "{outdir}/{sample}/facets/{sample}_facets_qc.txt",     
+        qc   = "{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",
+    output:
+        all_pdf = "{outdir}/{sample}/{sample}_kit_qc_normal.pdf"
+    resources:
+        threads = lambda wildcards, attempt: attempt * 2,
+        mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "making exome kit report: {wildcards.sample}"
+    log:
+        "{outdir}/logs/{sample}/exome_normal_report.log"
+    conda:
+        "envs/report_cnaqc.yaml"
+    params:
+        dir = "{outdir}/{sample}/",
+        sample_name = "{sample}_normal",
+        md_prefix = "{outdir}/{sample}/qc/mosdepth/{sample}_normal",
+
+    shell:
+        """
+        python scripts/exome_kit_qc_report.py --sample-name {params.sample_name} --reference {input.ref} --target-bed {input.bed} \
+        --mosdepth-prefix {params.md_prefix} --samtools-stats {input.stats} --vcf {input.variants} \
+        --facets-cncf {input.facets_seg} --facets-summary {input.facets_qc} \
+        --cnaqc-table {input.qc} --out {output.all_pdf} > {log} 2>&1
+        """
+
