@@ -236,13 +236,25 @@ def parse_mosdepth_summary(prefix):
     return pd.read_csv(path, sep="\t")
 
 
-def parse_mosdepth_global_dist(prefix):
-    path = Path(f"{prefix}.mosdepth.global.dist.txt")
-    if not path.exists():
-        raise FileNotFoundError(path)
+def parse_mosdepth_dist(prefix):
+    """Prefer the target-restricted region.dist.txt (produced when mosdepth
+    was run with --by target.bed) over the whole-genome global.dist.txt --
+    for a capture panel report the region-restricted curve is the relevant
+    one. Falls back to global if region isn't present. Returns
+    (DataFrame, which: 'region'|'global')."""
+    region_path = Path(f"{prefix}.mosdepth.region.dist.txt")
+    global_path = Path(f"{prefix}.mosdepth.global.dist.txt")
+
+    if region_path.exists():
+        path, which = region_path, "region"
+    elif global_path.exists():
+        path, which = global_path, "global"
+    else:
+        raise FileNotFoundError(f"{region_path} or {global_path}")
+
     df = pd.read_csv(path, sep="\t", header=None,
                       names=["chrom", "depth", "proportion"])
-    return df[df["chrom"] == "total"].sort_values("depth")
+    return df[df["chrom"] == "total"].sort_values("depth"), which
 
 
 def parse_mosdepth_regions(prefix):
@@ -289,6 +301,169 @@ def sn_float(sn, key, default=np.nan):
         return float(v)
     except ValueError:
         return default
+
+
+# --------------------------------------------------------------------------
+# Parsers -- generic Picard METRICS CLASS (e.g. MarkDuplicates dupmetrics)
+# --------------------------------------------------------------------------
+
+def parse_picard_metrics_class(path):
+    """Parse the '## METRICS CLASS' table out of any Picard tool's metrics
+    file (MarkDuplicates, CollectHsMetrics, etc). Returns the first data
+    row as a pd.Series with numeric coercion where possible."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with open(path) as fh:
+        lines = fh.readlines()
+
+    start = None
+    for i, line in enumerate(lines):
+        if line.startswith("## METRICS CLASS"):
+            start = i + 1
+            break
+    if start is None:
+        raise ValueError(f"Could not find '## METRICS CLASS' marker in {path}")
+
+    header = lines[start].rstrip("\n").split("\t")
+    data_rows = []
+    for line in lines[start + 1:]:
+        if line.strip() == "":
+            break
+        data_rows.append(line.rstrip("\n").split("\t"))
+
+    df = pd.DataFrame(data_rows, columns=header)
+    for col in df.columns:
+        coerced = pd.to_numeric(df[col], errors="coerce")
+        if coerced.notna().all():
+            df[col] = coerced
+    return df.iloc[0]
+
+
+# --------------------------------------------------------------------------
+# Parsers -- samtools flagstat (a much more common source of "duplicates"
+# in practice than Picard MarkDuplicates -- but flagstat only reports one
+# combined duplicate count, no optical/PCR split)
+# --------------------------------------------------------------------------
+
+_FLAGSTAT_LABELS = {
+    "in total": "total",
+    "primary": "primary",
+    "secondary": "secondary",
+    "supplementary": "supplementary",
+    "duplicates": "duplicates",
+    "primary duplicates": "primary_duplicates",
+    "mapped": "mapped",
+    "primary mapped": "primary_mapped",
+    "paired in sequencing": "paired_in_sequencing",
+    "read1": "read1",
+    "read2": "read2",
+    "properly paired": "properly_paired",
+    "with itself and mate mapped": "itself_and_mate_mapped",
+    "singletons": "singletons",
+    "with mate mapped to a different chr": "mate_diff_chr",
+    "with mate mapped to a different chr (mapq>=5)": "mate_diff_chr_mapq5",
+}
+
+_FLAGSTAT_LINE_RE = re.compile(r"^(\d+)\s*\+\s*(\d+)\s+(.*)$")
+_FLAGSTAT_PCT_SUFFIX_RE = re.compile(r"\s*\(\d+(\.\d+)?%[^)]*\)\s*$")
+
+
+def looks_like_flagstat(path):
+    with open(path) as fh:
+        head = fh.read(200)
+    return bool(re.search(r"^\d+\s*\+\s*\d+\s+in total", head))
+
+
+def parse_samtools_flagstat(path):
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    result = {}
+    with open(path) as fh:
+        for line in fh:
+            m = _FLAGSTAT_LINE_RE.match(line.strip())
+            if not m:
+                continue
+            qc_pass, qc_fail, desc = m.groups()
+            desc_clean = _FLAGSTAT_PCT_SUFFIX_RE.sub("", desc).strip().lower()
+            key = _FLAGSTAT_LABELS.get(desc_clean)
+            if key:
+                result[key] = int(qc_pass)
+    return result
+
+
+def estimate_library_size(read_pairs, unique_pairs):
+    """Picard's Lander-Waterman-based library complexity estimator
+    (DuplicationMetrics.estimateLibrarySize), reimplemented here because
+    samtools flagstat doesn't report ESTIMATED_LIBRARY_SIZE directly --
+    we only get a total duplicate count, so we derive it ourselves from
+    read_pairs (mapped pairs) and unique_pairs (non-duplicate pairs)."""
+    if read_pairs <= 0 or unique_pairs <= 0 or unique_pairs >= read_pairs:
+        return np.nan
+
+    def f(x, c, n):
+        return c / x - 1 + np.exp(-n / x)
+
+    m, M = 1.0, 100.0
+    if f(m * unique_pairs, unique_pairs, read_pairs) < 0:
+        return np.nan
+    tries = 0
+    while f(M * unique_pairs, unique_pairs, read_pairs) >= 0 and tries < 40:
+        M *= 10.0
+        tries += 1
+    for _ in range(60):
+        r = (m + M) / 2
+        u = f(r * unique_pairs, unique_pairs, read_pairs)
+        if u == 0:
+            break
+        elif u > 0:
+            m = r
+        else:
+            M = r
+    return unique_pairs * (m + M) / 2
+
+
+def load_dup_metrics(path):
+    """Auto-detects Picard MarkDuplicates metrics vs. samtools flagstat
+    (by far the more common source in practice) and returns a unified
+    dict: percent_duplication, read_pairs, primary_duplicate_pairs,
+    optical_duplicate_pairs (Picard only, NaN for flagstat),
+    estimated_library_size, source ('picard'|'flagstat')."""
+    path = Path(path)
+    if looks_like_flagstat(path):
+        fs = parse_samtools_flagstat(path)
+        primary_mapped = fs.get("primary_mapped", np.nan)
+        primary_dup = fs.get("primary_duplicates", np.nan)
+        if pd.isna(primary_mapped) or pd.isna(primary_dup) or primary_mapped == 0:
+            raise ValueError(f"flagstat file {path} is missing 'primary mapped' / "
+                              "'primary duplicates' lines -- unexpected samtools flagstat format")
+        read_pairs = primary_mapped / 2
+        dup_pairs = primary_dup / 2
+        unique_pairs = read_pairs - dup_pairs
+        return {
+            "source": "flagstat",
+            "percent_duplication": primary_dup / primary_mapped,
+            "read_pairs": read_pairs,
+            "primary_duplicate_pairs": dup_pairs,
+            "optical_duplicate_pairs": np.nan,  # not available from flagstat
+            "estimated_library_size": estimate_library_size(read_pairs, unique_pairs),
+        }
+    else:
+        d = parse_picard_metrics_class(path)
+        pct_dup = d["PERCENT_DUPLICATION"] if "PERCENT_DUPLICATION" in d.index else np.nan
+        read_pairs = d["READ_PAIRS_EXAMINED"] if "READ_PAIRS_EXAMINED" in d.index else np.nan
+        optical = d["READ_PAIR_OPTICAL_DUPLICATES"] if "READ_PAIR_OPTICAL_DUPLICATES" in d.index else np.nan
+        lib_size = d["ESTIMATED_LIBRARY_SIZE"] if "ESTIMATED_LIBRARY_SIZE" in d.index else np.nan
+        total_dup_pairs = pct_dup * read_pairs if pd.notna(pct_dup) and pd.notna(read_pairs) else np.nan
+        return {
+            "source": "picard",
+            "percent_duplication": pct_dup,
+            "read_pairs": read_pairs,
+            "primary_duplicate_pairs": max(total_dup_pairs - optical, 0) if pd.notna(total_dup_pairs) and pd.notna(optical) else total_dup_pairs,
+            "optical_duplicate_pairs": optical,
+            "estimated_library_size": lib_size,
+        }
 
 
 # --------------------------------------------------------------------------
@@ -464,6 +639,22 @@ def parse_generic_table(path):
     return pd.read_csv(path, sep=None, engine="python")
 
 
+def parse_target_bed(path):
+    """Parse a target BED, keeping a name column if present (col 4)."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with _open_maybe_gz(path) as fh:
+        first = fh.readline()
+    ncols = len(first.rstrip("\n").split("\t"))
+    names = ["chrom", "start", "end", "name"][:max(3, min(ncols, 4))]
+    df = pd.read_csv(path, sep="\t", header=None, names=names,
+                      usecols=range(len(names)), comment="#")
+    if "name" not in df.columns:
+        df["name"] = df["chrom"] + ":" + df["start"].astype(str) + "-" + df["end"].astype(str)
+    return df
+
+
 # --------------------------------------------------------------------------
 # Report sections
 # --------------------------------------------------------------------------
@@ -487,9 +678,25 @@ class Inputs:
             self.warnings.append("no --reference given: GC-bias page skipped")
 
         self.target_bed = args.target_bed
+        self.target_bed_df = None
+        if args.target_bed:
+            try:
+                self.target_bed_df = parse_target_bed(args.target_bed)
+            except Exception as e:
+                self.warnings.append(f"target-bed: {e}")
+
+        self.kit_name = args.kit_name
+
+        self.dup_metrics = None
+        if args.dup_metrics:
+            try:
+                self.dup_metrics = load_dup_metrics(args.dup_metrics)
+            except Exception as e:
+                self.warnings.append(f"dup-metrics: {e}")
 
         self.mosdepth_summary = None
         self.mosdepth_dist = None
+        self.mosdepth_dist_source = None
         self.mosdepth_regions = None
         if args.mosdepth_prefix:
             try:
@@ -497,9 +704,9 @@ class Inputs:
             except Exception as e:
                 self.warnings.append(f"mosdepth summary: {e}")
             try:
-                self.mosdepth_dist = parse_mosdepth_global_dist(args.mosdepth_prefix)
+                self.mosdepth_dist, self.mosdepth_dist_source = parse_mosdepth_dist(args.mosdepth_prefix)
             except Exception as e:
-                self.warnings.append(f"mosdepth global dist: {e}")
+                self.warnings.append(f"mosdepth coverage distribution: {e}")
             try:
                 self.mosdepth_regions = parse_mosdepth_regions(args.mosdepth_prefix)
             except Exception as e:
@@ -555,6 +762,8 @@ def page_title(pdf, inp, args):
     ax.axis("off")
     ax.text(0.5, 0.85, "Sample Capture QC Report", ha="center", fontsize=22, fontweight="bold")
     ax.text(0.5, 0.79, inp.sample_name, ha="center", fontsize=14, color=C_MAIN)
+    if inp.kit_name:
+        ax.text(0.5, 0.755, f"Kit / panel: {inp.kit_name}", ha="center", fontsize=10, color=C_ACCENT)
     ax.text(0.5, 0.74, "Intrinsic QC only -- no truth set used. Compare this PDF "
                         "visually against another run of the same sample.",
              ha="center", fontsize=9.5, color="#555555")
@@ -564,11 +773,16 @@ def page_title(pdf, inp, args):
     y -= 0.045
     found = []
     if inp.reference: found.append(f"Reference: {args.reference}")
-    if args.target_bed: found.append(f"Target BED: {args.target_bed}")
+    if inp.target_bed_df is not None: found.append(f"Target BED (with names): {args.target_bed}")
+    elif args.target_bed: found.append(f"Target BED: {args.target_bed}")
     if inp.mosdepth_summary is not None: found.append("mosdepth summary")
-    if inp.mosdepth_dist is not None: found.append("mosdepth global coverage distribution")
+    if inp.mosdepth_dist is not None:
+        src_label = "target-restricted (region.dist.txt)" if inp.mosdepth_dist_source == "region" \
+            else "whole-genome (global.dist.txt) -- no region.dist.txt found, less relevant for a capture panel"
+        found.append(f"mosdepth coverage distribution: {src_label}")
     if inp.mosdepth_regions is not None: found.append("mosdepth per-target regions")
     if inp.sn is not None: found.append("samtools stats")
+    if inp.dup_metrics is not None: found.append("Picard MarkDuplicates metrics (PCR bias)")
     if inp.vcf_df is not None: found.append(f"VCF ({len(inp.vcf_df)} variant records)")
     if inp.facets_cncf is not None: found.append("FACETS cncf segments")
     if inp.facets_summary is not None: found.append("FACETS purity/ploidy summary")
@@ -670,8 +884,10 @@ def page_coverage(pdf, inp):
         d = inp.mosdepth_dist
         ax1.plot(d["depth"], d["proportion"], color=C_MAIN, linewidth=1.8)
         ax1.set_xlabel("Depth (x)")
-        ax1.set_ylabel("Fraction of bases \u2265 depth")
-        ax1.set_title("Cumulative coverage distribution", fontsize=10)
+        src_note = ("target bases only" if inp.mosdepth_dist_source == "region"
+                    else "whole genome -- no region.dist.txt found")
+        ax1.set_ylabel(f"Fraction of {src_note} \u2265 depth")
+        ax1.set_title(f"Cumulative coverage distribution ({src_note})", fontsize=10)
         ax1.set_ylim(0, 1.02)
         max_depth = d.loc[d["proportion"] > 0.01, "depth"].max()
         ax1.set_xlim(0, max(50, max_depth * 1.05) if pd.notna(max_depth) else 200)
@@ -684,7 +900,8 @@ def page_coverage(pdf, inp):
                               xytext=(5, 8), textcoords="offset points")
     else:
         ax1.axis("off")
-        ax1.text(0.5, 0.5, "No mosdepth global.dist.txt provided", ha="center", color=C_GREY)
+        ax1.text(0.5, 0.5, "No mosdepth region.dist.txt or global.dist.txt provided",
+                  ha="center", color=C_GREY)
 
     ax2 = axes[1]
     cv_text = None
@@ -732,6 +949,181 @@ def page_coverage(pdf, inp):
         table.scale(1, 1.5)
         pdf.savefig(fig2)
         plt.close(fig2)
+
+
+# ---- Page: on/off-target specificity (bias table item #3) -------------------
+
+def page_specificity(pdf, inp):
+    """Off-target enrichment check -- uses mosdepth summary's 'total'
+    (whole-genome) vs 'total_region' (target-only) rows, which is a free
+    on-target-specificity signal nobody else in the pipeline surfaces."""
+    if inp.mosdepth_summary is None or "chrom" not in inp.mosdepth_summary.columns:
+        return
+    s = inp.mosdepth_summary
+    total_row = s[s["chrom"] == "total"]
+    region_row = s[s["chrom"] == "total_region"]
+    if len(total_row) == 0 or len(region_row) == 0:
+        return  # mosdepth wasn't run with --by, or naming differs -- nothing to compute
+
+    total_bases = total_row["bases"].iloc[0]
+    region_bases = region_row["bases"].iloc[0]
+    total_len = total_row["length"].iloc[0]
+    region_len = region_row["length"].iloc[0]
+    on_target_frac = region_bases / total_bases if total_bases else np.nan
+    target_frac_of_genome = region_len / total_len if total_len else np.nan
+    enrichment = on_target_frac / target_frac_of_genome if target_frac_of_genome else np.nan
+
+    fig = plt.figure(figsize=A4_LANDSCAPE)
+    ax = fig.add_axes([0.08, 0.15, 0.5, 0.7])
+    labels = ["On-target\n(target_region bases)", "Off-target\n(rest of genome)"]
+    values = [on_target_frac, 1 - on_target_frac] if pd.notna(on_target_frac) else [0, 0]
+    bars = ax.bar(labels, values, color=[C_MAIN, C_ACCENT])
+    for b, v in zip(bars, values):
+        ax.text(b.get_x() + b.get_width()/2, v, f"{v:.1%}", ha="center", va="bottom", fontsize=10)
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("Fraction of aligned bases")
+    ax.set_title("On-target vs. off-target base fraction\n"
+                  "(derived from mosdepth total vs. total_region)", fontsize=10.5)
+
+    ax2 = fig.add_axes([0.62, 0.15, 0.32, 0.7])
+    ax2.axis("off")
+    txt = (
+        f"On-target rate:  {on_target_frac:.1%}\n\n"
+        f"Target territory:  {target_frac_of_genome:.3%}\n"
+        f"of the genome\n\n"
+        f"Fold enrichment:  {enrichment:.0f}\u00d7\n"
+        f"(on-target rate \u00f7 target\n fraction of genome --\n"
+        f"how much the capture\n concentrated reads onto\n the intended regions)"
+    )
+    ax2.text(0.0, 0.9, txt, fontsize=10, va="top", family="monospace")
+
+    fig.suptitle("Target Specificity (off-target enrichment)", fontsize=14, fontweight="bold")
+    pdf.savefig(fig)
+    plt.close(fig)
+    return on_target_frac
+
+
+# ---- Page: PCR / amplification bias (bias table item #6) --------------------
+
+def page_duplication(pdf, inp):
+    """Amplification bias check. Works from either Picard MarkDuplicates
+    metrics (optical/PCR split + native library size) or samtools
+    flagstat (total duplicate rate only -- optical/PCR split isn't
+    available from flagstat, and library size is estimated here via the
+    same Lander-Waterman formula Picard uses)."""
+    if inp.dup_metrics is None:
+        return
+    d = inp.dup_metrics
+    pct_dup = d["percent_duplication"]
+    read_pairs = d["read_pairs"]
+    optical_dup = d["optical_duplicate_pairs"]
+    pcr_dup_pairs = d["primary_duplicate_pairs"]
+    lib_size = d["estimated_library_size"]
+    pcr_frac_of_dups = (pcr_dup_pairs / (pcr_dup_pairs + optical_dup)
+                         if pd.notna(pcr_dup_pairs) and pd.notna(optical_dup)
+                         and (pcr_dup_pairs + optical_dup) else np.nan)
+
+    source_label = ("Picard MarkDuplicates" if d["source"] == "picard"
+                     else "samtools flagstat -- no optical/PCR split available; "
+                          "library size estimated, not Picard-reported")
+
+    fig = plt.figure(figsize=A4_LANDSCAPE)
+    fig.suptitle("PCR / Amplification Bias", fontsize=14, fontweight="bold", y=0.98)
+    fig.text(0.5, 0.935, f"Source: {source_label}", ha="center", fontsize=8.5, color=C_GREY)
+
+    ax1 = fig.add_axes([0.08, 0.15, 0.35, 0.65])
+    ax1.axis("off")
+    rows = [
+        ("Duplication rate", f"{pct_dup:.1%}" if pd.notna(pct_dup) else "--"),
+        ("Read pairs (mapped)", f"{read_pairs:,.0f}" if pd.notna(read_pairs) else "--"),
+        ("Duplicate pairs", f"{pcr_dup_pairs:,.0f}" if pd.notna(pcr_dup_pairs) else "--"),
+        ("  -- of which optical", f"{optical_dup:,.0f}" if pd.notna(optical_dup) else "n/a (flagstat)"),
+        ("  -- of which PCR (not optical)", f"{pcr_frac_of_dups:.0%}" if pd.notna(pcr_frac_of_dups) else "n/a"),
+        ("Estimated library size", f"{lib_size:,.0f}" if pd.notna(lib_size) else "--"),
+    ]
+    ax1.text(0.0, 0.95, "\n\n".join(f"{k}:\n  {v}" for k, v in rows),
+              fontsize=10, va="top", family="monospace")
+
+    ax2 = fig.add_axes([0.5, 0.2, 0.45, 0.6])
+    if pd.notna(optical_dup) and pd.notna(pcr_dup_pairs) and d["source"] == "picard":
+        ax2.bar(["Optical\nduplicates", "PCR\nduplicates"], [optical_dup, pcr_dup_pairs],
+                 color=[C_ACCENT, C_MAIN])
+        ax2.set_ylabel("Read pairs")
+        ax2.set_title("Duplicate source breakdown\n"
+                       "(high PCR share \u2192 amplification bias;\n"
+                       "high optical share \u2192 sequencer/flowcell artifact)", fontsize=9.5)
+    else:
+        ax2.axis("off")
+        msg = ("samtools flagstat only reports one combined duplicate count --\n"
+               "can't separate PCR-driven duplication from optical duplicates.\n\n"
+               "If you want that split, re-run duplicate marking with:\n"
+               "samtools markdup -s -f markdup_stats.txt in.bam out.bam\n"
+               "and point --dup-metrics at markdup_stats.txt instead."
+               if d["source"] == "flagstat" else
+               "No optical duplicate field found in this Picard metrics file.")
+        ax2.text(0.5, 0.5, msg, ha="center", va="center", color=C_GREY, fontsize=8.5)
+
+    pdf.savefig(fig)
+    plt.close(fig)
+    return pct_dup
+
+
+# ---- Page: worst dropout targets, named (bias table item #2, upgraded) ------
+
+def page_dropout_targets(pdf, inp, n=20):
+    """Names the actual worst-covered targets (gene/exon names from the
+    target BED's 4th column, if present) instead of just a summary CV
+    number -- tells you *which* regions failed, not just that some did."""
+    if inp.mosdepth_regions is None:
+        return
+
+    r = inp.mosdepth_regions.copy()
+    mean_all = r["mean_depth"].mean()
+    r["norm_depth"] = r["mean_depth"] / mean_all if mean_all else r["mean_depth"]
+
+    if inp.target_bed_df is not None:
+        merged = r.merge(inp.target_bed_df[["chrom", "start", "end", "name"]],
+                          on=["chrom", "start", "end"], how="left")
+        merged["name"] = merged["name"].fillna(
+            merged["chrom"] + ":" + merged["start"].astype(str) + "-" + merged["end"].astype(str))
+    else:
+        merged = r.copy()
+        merged["name"] = merged["chrom"] + ":" + merged["start"].astype(str) + "-" + merged["end"].astype(str)
+
+    worst = merged.sort_values("mean_depth").head(n)
+
+    fig = plt.figure(figsize=A4_LANDSCAPE)
+    ax = fig.add_axes([0.05, 0.05, 0.9, 0.85])
+    ax.axis("off")
+    fig.text(0.5, 0.95, f"{n} Worst-Covered Targets", ha="center", fontsize=14, fontweight="bold")
+    if inp.target_bed_df is None:
+        fig.text(0.5, 0.905, "No --target-bed name column given: showing coordinates only. "
+                              "Pass a 4-column BED (chrom/start/end/name) to see gene/exon names here.",
+                  ha="center", fontsize=8, color=C_GREY)
+
+    table_df = worst[["name", "chrom", "start", "end", "mean_depth", "norm_depth"]].copy()
+    table_df["mean_depth"] = table_df["mean_depth"].round(1)
+    table_df["norm_depth"] = table_df["norm_depth"].round(2)
+    table_df.columns = ["Target", "Chrom", "Start", "End", "Mean depth", "Normalized"]
+    table = ax.table(cellText=table_df.astype(str).values, colLabels=table_df.columns,
+                      cellLoc="center", loc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.3)
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_facecolor(C_MAIN)
+            cell.set_text_props(color="white", fontweight="bold")
+        elif col == 5:
+            try:
+                val = float(table_df.iloc[row - 1]["Normalized"])
+                if val < 0.2:
+                    cell.set_facecolor("#f7d6d6")
+            except (ValueError, IndexError):
+                pass
+
+    pdf.savefig(fig)
+    plt.close(fig)
 
 
 # ---- Page: GC bias ----------------------------------------------------------
@@ -1032,8 +1424,26 @@ def page_cnaqc(pdf, inp):
 
 # ---- Page: automated heuristic flags -----------------------------------------
 
-def page_flags(pdf, inp, gc_df):
+def page_flags(pdf, inp, gc_df, on_target_frac=None, pct_dup=None):
     flags = []  # (severity, message)  severity in {"ok","warn","bad"}
+
+    if pd.notna(on_target_frac) if on_target_frac is not None else False:
+        if on_target_frac < 0.4:
+            flags.append(("bad", f"On-target rate is low ({on_target_frac:.1%}): "
+                                   "substantial off-target enrichment -- check probe specificity."))
+        elif on_target_frac < 0.6:
+            flags.append(("warn", f"On-target rate is moderate ({on_target_frac:.1%})."))
+        else:
+            flags.append(("ok", f"On-target rate looks reasonable ({on_target_frac:.1%})."))
+
+    if pct_dup is not None and pd.notna(pct_dup):
+        if pct_dup > 0.4:
+            flags.append(("bad", f"Duplication rate is high ({pct_dup:.1%}): "
+                                   "possible low-input/over-amplification bias, check library complexity."))
+        elif pct_dup > 0.25:
+            flags.append(("warn", f"Duplication rate is moderately elevated ({pct_dup:.1%})."))
+        else:
+            flags.append(("ok", f"Duplication rate looks reasonable ({pct_dup:.1%})."))
 
     if inp.mosdepth_regions is not None:
         r = inp.mosdepth_regions
@@ -1137,13 +1547,16 @@ def build_report(args):
         page_title(pdf, inp, args)
         page_alignment_qc(pdf, inp)
         page_coverage(pdf, inp)
+        on_target_frac = page_specificity(pdf, inp)
+        pct_dup = page_duplication(pdf, inp)
+        page_dropout_targets(pdf, inp)
         gc_df = page_gc_bias(pdf, inp)
         page_variant_overview(pdf, inp)
         page_vaf_and_density(pdf, inp)
         page_info_annotations(pdf, inp)
         page_facets(pdf, inp)
         page_cnaqc(pdf, inp)
-        page_flags(pdf, inp, gc_df)
+        page_flags(pdf, inp, gc_df, on_target_frac, pct_dup)
 
     print(f"Wrote {out_path}")
     for w in inp.warnings:
@@ -1162,6 +1575,12 @@ def main():
     ap.add_argument("--target-bed", help="Capture target BED (informational)")
     ap.add_argument("--mosdepth-prefix", help="Prefix passed to mosdepth (without file suffix)")
     ap.add_argument("--samtools-stats", help="Output of `samtools stats sample.bam`")
+    ap.add_argument("--dup-metrics", help="Duplicate metrics file for PCR/amplification bias QC -- "
+                                            "either Picard MarkDuplicates metrics or samtools flagstat "
+                                            "output (auto-detected); flagstat gives duplication rate + "
+                                            "an estimated library size but no optical/PCR split")
+    ap.add_argument("--kit-name", help="Free-text capture kit/panel label, shown on the title page "
+                                         "(for your own batch/kit-to-kit bookkeeping when comparing PDFs)")
     ap.add_argument("--vcf", help="VCF or VCF.gz of variant calls")
     ap.add_argument("--facets-cncf", help="FACETS per-segment cncf output table")
     ap.add_argument("--facets-summary", help="FACETS purity/ploidy/dipLogR summary file")

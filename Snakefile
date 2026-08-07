@@ -1199,13 +1199,13 @@ rule report_kit_qc_tumor:
         dir = "{outdir}/{sample}/",
         sample_name = "{sample}_tumor",
         md_prefix = "{outdir}/{sample}/qc/mosdepth/{sample}_tumor",
-
+        dup_metrics = "{outdir}/{sample}/qc/samtools/{sample}_tumor_dupmetrics.txt",
     shell:
         """
         python scripts/exome_kit_qc_report.py --sample-name {params.sample_name} --reference {input.ref} --target-bed {input.bed} \
         --mosdepth-prefix {params.md_prefix} --samtools-stats {input.stats} --vcf {input.variants} \
         --facets-cncf {input.facets_seg} --facets-summary {input.facets_qc} \
-        --cnaqc-table {input.qc} --out {output.all_pdf} > {log} 2>&1
+        --cnaqc-table {input.qc} --dup-metrics {params.dup_metrics} --out {output.all_pdf} > {log} 2>&1
         """
 
 
@@ -1219,28 +1219,52 @@ rule report_kit_qc_normal:
         facets_seg = "{outdir}/{sample}/facets/{sample}_cnv_segments.tsv",  
         facets_qc = "{outdir}/{sample}/facets/{sample}_facets_qc.txt",     
         qc   = "{outdir}/{sample}/cnaqc/{sample}_cnaqc_qc.txt",
+        tumor_bam =  "{outdir}/{sample}/aligned/{sample}_tumor_markdup.bam",
+
     output:
         all_pdf = "{outdir}/{sample}/{sample}_kit_qc_normal.pdf"
     resources:
         threads = lambda wildcards, attempt: attempt * 2,
         mem_gb = lambda wildcards, attempt: 2 + attempt * 4,
-        time_hrs = lambda wildcards, attempt: attempt * 1
+        time_hrs = lambda wildcards, attempt: attempt * 2
     message:
         "making exome kit report: {wildcards.sample}"
     log:
         "{outdir}/logs/{sample}/exome_normal_report.log"
     conda:
-        "envs/report_cnaqc.yaml"
+        "envs/exome_qc.yaml"
     params:
         dir = "{outdir}/{sample}/",
         sample_name = "{sample}_normal",
         md_prefix = "{outdir}/{sample}/qc/mosdepth/{sample}_normal",
-
+        dup_metrics = "{outdir}/{sample}/qc/samtools/{sample}_normal_dupmetrics.txt",
+        html_report = "{outdir}/{sample}/exome_report.html",
+        data_tsv = "{outdir}/{sample}/qc/{sample}_variants_annotated.tsv",
+        fai = config["reference"]["fasta"] + ".fai",
+        prefix = "{outdir}/{sample}/qc/{sample}",
     shell:
         """
         python scripts/exome_kit_qc_report.py --sample-name {params.sample_name} --reference {input.ref} --target-bed {input.bed} \
         --mosdepth-prefix {params.md_prefix} --samtools-stats {input.stats} --vcf {input.variants} \
         --facets-cncf {input.facets_seg} --facets-summary {input.facets_qc} \
-        --cnaqc-table {input.qc} --out {output.all_pdf} > {log} 2>&1
+        --cnaqc-table {input.qc} --dup-metrics {params.dup_metrics} --out {output.all_pdf} > {log} 2>&1
+
+        python scripts/detect_off_target_reads.sh -b {input.tumor_bam} -v {input.variants} -t {input.bed} -g {params.fai} -o {params.prefix} > {log} 2>&1
+
+        python scripts/vis_exome.py -i {params.data_tsv} -o {params.html_report} > {log} 2>&1
+
+# add the second one aswell 
+# bash claude3.sh -b ../aligned/st015_normal_markdup.bam -v ../deepsomatic/st015_somatic_raw.vcf -t ../../../../supporting_data/Illumina_Exome_TargetedRegions_v1.2.hg38.bed -o claude3_test_padding_100 -g ../../../../supporting_data/hg38.fa.fai --pass-only -p 100
+# bash detect_off_target_reads.sh -b ../aligned/st015_normal_markdup.bam -v ../deepsomatic/st015_somatic_raw.vcf -t ../../../../supporting_data/Illumina_Exome_TargetedRegions_v1.2.hg38.bed -o claude3_test_padding_100 -g ../../../../supporting_data/hg38.fa.fai --pass-only -p 100
+# use the tumor bam
+# use the somatic_all or somatic_pass.vcf
+# visualization comes later
+# visualization: 
+
+
+#python3 vis_exome.py \
+#    -i claude3_test_padding_100_variants_annotated.tsv \
+#    -o report5.html
+
         """
 
