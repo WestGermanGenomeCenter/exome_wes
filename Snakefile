@@ -1210,7 +1210,7 @@ rule report_kit_qc_tumor:
 
 
 
-rule report_kit_qc_normal:
+rule report_kit_qc_normal: # attaching a second report workflow here, might separate later...
     input:
         ref    = REF,
         bed = INTERVALS,
@@ -1253,6 +1253,9 @@ rule report_kit_qc_normal:
 
         python scripts/vis_exome.py -i {params.data_tsv} -o {params.html_report} > {log} 2>&1
 
+        """
+
+
 # add the second one aswell 
 # bash claude3.sh -b ../aligned/st015_normal_markdup.bam -v ../deepsomatic/st015_somatic_raw.vcf -t ../../../../supporting_data/Illumina_Exome_TargetedRegions_v1.2.hg38.bed -o claude3_test_padding_100 -g ../../../../supporting_data/hg38.fa.fai --pass-only -p 100
 # bash detect_off_target_reads.sh -b ../aligned/st015_normal_markdup.bam -v ../deepsomatic/st015_somatic_raw.vcf -t ../../../../supporting_data/Illumina_Exome_TargetedRegions_v1.2.hg38.bed -o claude3_test_padding_100 -g ../../../../supporting_data/hg38.fa.fai --pass-only -p 100
@@ -1265,6 +1268,3 @@ rule report_kit_qc_normal:
 #python3 vis_exome.py \
 #    -i claude3_test_padding_100_variants_annotated.tsv \
 #    -o report5.html
-
-        """
-

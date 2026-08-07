@@ -18,3 +18,4 @@ dependencies:
   - r-data.table
   - r-scales
   - r-viridislite
+  - bioconductor-variantannotation
